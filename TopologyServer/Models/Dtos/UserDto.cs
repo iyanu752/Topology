@@ -1,18 +1,12 @@
 using System;
-using MongoDB.Bson;
-using MongoDB.Bson.Serialization.Attributes;
+
 namespace TopologyServer;
 
-public class User
+public class UserDto
 {
-    [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
     public string? Id {get; set;}
-    [BsonElement("auth0UserId")]
     public string Auth0UserId {get; set;} = string.Empty;
-    [BsonElement("username")]
     public string? UserName {get; set;}
     public string? Email {get; set;}
     public DateTime CreatedAt {get; set;}
-
 }

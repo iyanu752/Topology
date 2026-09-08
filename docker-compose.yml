@@ -8,6 +8,9 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
+      Auth0__Domain: ${AUTH0_DOMAIN:-}
+      Auth0__Audience: ${AUTH0_AUDIENCE:-}
+      ConnectionStrings__MongoDB: ${MONGODB_CONNECTION_STRING:-}
 
   frontend:
     image: topology-client

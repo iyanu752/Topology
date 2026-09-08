@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Auth0.AspNetCore.Authentication.Api;
 using MongoDB.Driver;
 using TopologyServer;
@@ -22,10 +23,11 @@ builder.Services.AddAuth0ApiAuthentication(auth0Section);
 builder.Services.AddAuthorization();
 builder.Services.AddOpenApi();
 builder.Services.AddSwaggerGen();
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IRoomService, RoomService>();
 
 var app = builder.Build();
 
@@ -41,3 +43,5 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+public partial class Program { }

@@ -1,4 +1,3 @@
-using System;
 using System.Security.Claims;
 using MongoDB.Driver;
 
@@ -8,7 +7,6 @@ public class RoomService : IRoomService
 {
     private readonly IMongoCollection<Room> _room;
     private readonly ILogger<RoomService> _logger;
-
     private readonly IAuthService _authService;
 
     public RoomService(IMongoDatabase database, ILogger<RoomService> logger, IAuthService authService)
@@ -16,7 +14,7 @@ public class RoomService : IRoomService
         _room = database.GetCollection<Room>("Room");
         _logger = logger;
         _authService = authService;
-    } 
+    }
 
     public async Task<Room> CreateRoomAsync(ClaimsPrincipal claimsPrincipal, CreateRoomDto createRoomDto)
     {
@@ -26,14 +24,16 @@ public class RoomService : IRoomService
             OwnerUserId = user.Id!,
             MemberUserIds = [user.Id!],
             Type = createRoomDto.Type,
+            RoomKey = createRoomDto.RoomKey,
             CreatedAt = DateTime.UtcNow
         };
+
         await _room.InsertOneAsync(room);
-        _logger.LogInformation("Room Created Sucessfully");
+        _logger.LogInformation("Room created successfully");
         return room;
     }
 
-    public async Task<Room?> JoinRoomAsync (ClaimsPrincipal claimsPrincipal, JoinRoomDto joinRoomDto)
+    public async Task<Room?> JoinRoomAsync(ClaimsPrincipal claimsPrincipal, JoinRoomDto joinRoomDto)
     {
         var user = await _authService.GetOrCreateUserAsync(claimsPrincipal);
         var room = await _room.Find(room => room.Id == joinRoomDto.Id).FirstOrDefaultAsync();
@@ -42,9 +42,10 @@ public class RoomService : IRoomService
             _logger.LogWarning("Room not found");
             return null;
         }
+
         if (room.Type == AccessType.Private && room.RoomKey != joinRoomDto.RoomKey)
         {
-            _logger.LogWarning("Your room key is invalid");
+            _logger.LogWarning("Room key is invalid");
             throw new UnauthorizedAccessException("Invalid room key");
         }
 
@@ -52,10 +53,11 @@ public class RoomService : IRoomService
         {
             return room;
         }
+
         var update = Builders<Room>.Update.AddToSet(room => room.MemberUserIds, user.Id!);
-        await _room.UpdateOneAsync(existingroom => existingroom.Id ==  room.Id, update);
+        await _room.UpdateOneAsync(existingRoom => existingRoom.Id == room.Id, update);
         room.MemberUserIds.Add(user.Id!);
-        _logger.LogInformation("Room created successfully");
+        _logger.LogInformation("Room joined successfully");
         return room;
     }
 
@@ -63,19 +65,20 @@ public class RoomService : IRoomService
     {
         var user = await _authService.GetOrCreateUserAsync(claimsPrincipal);
         var room = await _room.Find(room => room.Id == deleteRoomDto.Id).FirstOrDefaultAsync();
-        if (room == null)
+        if (room is null)
         {
-            _logger.LogWarning("Room does not exist(delete)");
+            _logger.LogWarning("Room does not exist");
             return null;
         }
 
-        if(room.OwnerUserId != user.Id)
+        if (room.OwnerUserId != user.Id)
         {
-            _logger.LogWarning("Only room owners can create room");
+            _logger.LogWarning("Only room owners can delete rooms");
             throw new UnauthorizedAccessException("Only room owners can delete room");
-        } 
-        var result = await _room.DeleteOneAsync(room.Id);
-        _logger.LogInformation("Room created successfully");
+        }
+
+        var result = await _room.DeleteOneAsync(existingRoom => existingRoom.Id == deleteRoomDto.Id);
+        _logger.LogInformation("Room deleted successfully");
         return result.DeletedCount > 0;
     }
 }

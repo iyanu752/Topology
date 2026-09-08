@@ -39,4 +39,23 @@ public class AuthService : IAuthService
         return newUser; 
     }
 
+    public async Task<bool?> DeleteUserAsync(ClaimsPrincipal principal)
+    {
+        var auth0UserId = principal.FindFirst("sub")?.Value;
+        if (string.IsNullOrWhiteSpace(auth0UserId))
+        {
+            _logger.LogWarning("Cannot delete user because Auth0 user id was not found");
+            return false;
+        }
+        var result = await _users.DeleteOneAsync(user => user.Auth0UserId == auth0UserId);
+
+        if (result.DeletedCount == 0)
+        {
+            _logger.LogInformation("No user found to delete");
+            return null;
+        } 
+
+        _logger.LogInformation("Deleted user with Auth0 id {Auth0UserId}", auth0UserId);
+        return true;
+    }
 }

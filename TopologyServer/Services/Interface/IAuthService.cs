@@ -7,4 +7,6 @@ public interface IAuthService
 {
     Task<User>GetOrCreateUserAsync(ClaimsPrincipal principal);
 
+    Task<bool?>DeleteUserAsync(ClaimsPrincipal principal);
+
 }

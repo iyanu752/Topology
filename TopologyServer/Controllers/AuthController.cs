@@ -28,5 +28,18 @@ public sealed class AuthController : ControllerBase
         return Ok(user);
     }
 
+    [HttpDelete("profile")]
+    [Authorize]
+    public async Task<IActionResult> DeleteProfile()
+    {
+        var deleted = await _authService.DeleteUserAsync(User);
+        return deleted switch
+        {
+            true => NoContent(),
+            false => Unauthorized(),
+            null => NotFound()
+        };
+    }
+
 
 }

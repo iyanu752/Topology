@@ -1,6 +1,89 @@
 @TopologyServer_HostAddress = http://localhost:5023
+@AccessToken = auth0-access-token-here
+@RoomId = paste-room-id-here
+@RoomKey = 123456
 
-# GET {{TopologyServer_HostAddress}}/weatherforecast/
-# Accept: application/json
+### Public auth check
+GET {{TopologyServer_HostAddress}}/api/auth/public
+Accept: application/json
+
+###
+
+### Get or create current user's database profile
+GET {{TopologyServer_HostAddress}}/api/auth/profile
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+### Delete current user's database profile
+DELETE {{TopologyServer_HostAddress}}/api/auth/profile
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+### Create public room
+POST {{TopologyServer_HostAddress}}/api/room/create
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "type": "Public",
+  "roomKey": null
+}
+
+###
+
+### Create private room
+POST {{TopologyServer_HostAddress}}/api/room/create
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "type": "Private",
+  "roomKey": "{{RoomKey}}"
+}
+
+###
+
+### Join public room
+POST {{TopologyServer_HostAddress}}/api/room/join
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "id": "{{RoomId}}",
+  "roomKey": null
+}
+
+###
+
+### Join private room
+POST {{TopologyServer_HostAddress}}/api/room/join
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "id": "{{RoomId}}",
+  "roomKey": {{RoomKey}}
+}
+
+###
+
+### Delete room
+DELETE {{TopologyServer_HostAddress}}/api/room
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "id": "{{RoomId}}",
+  "roomKey": {{RoomKey}}
+}
 
 ###

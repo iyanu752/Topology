@@ -1,8 +1,10 @@
 # Dependencies
 node_modules/
+TopologyClient/node_modules/
 
-# Frontend build output
+# Build output
 dist/
+TopologyClient/dist/
 
 # Logs
 *.log
@@ -33,4 +35,3 @@ TopologyServer/obj/
 *.suo
 *.userosscache
 *.sln.docstates
-

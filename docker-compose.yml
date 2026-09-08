@@ -1,0 +1,40 @@
+services:
+  server:
+    image: topology-server
+    build:
+      context: ./TopologyServer
+    ports:
+      - "5023:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+
+  frontend:
+    image: topology-client
+    build:
+      context: .
+      args:
+        NODE_VERSION: 24.5.0
+    ports:
+      - "5173:80"
+    depends_on:
+      - server
+
+  frontend-dev:
+    image: topology-client-dev
+    profiles:
+      - dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      args:
+        NODE_VERSION: 24.5.0
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    depends_on:
+      - server

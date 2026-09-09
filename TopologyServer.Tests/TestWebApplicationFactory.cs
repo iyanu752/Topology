@@ -21,6 +21,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
     public FakeAuthService AuthService { get; } = new();
     public FakeRoomService RoomService { get; } = new();
+    public FakeDesignService DesignService { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -48,8 +49,10 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IAuthService>();
             services.RemoveAll<IRoomService>();
+            services.RemoveAll<IDesignService>();
             services.AddSingleton<IAuthService>(AuthService);
             services.AddSingleton<IRoomService>(RoomService);
+            services.AddSingleton<IDesignService>(DesignService);
         });
     }
 }
@@ -121,5 +124,82 @@ public sealed class FakeRoomService : IRoomService
         }
 
         return Task.FromResult(DeleteResult);
+    }
+}
+
+public sealed class FakeDesignService : IDesignService
+{
+    public Design? GetResult { get; set; } = new()
+    {
+        Id = "design-1",
+        RoomId = "room-1",
+        UpdatedByUserId = "user-1",
+        Nodes = [],
+        Edges = [],
+        Revision = 1,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    public Design SaveResult { get; set; } = new()
+    {
+        Id = "design-1",
+        RoomId = "room-1",
+        UpdatedByUserId = "user-1",
+        Nodes = [],
+        Edges = [],
+        Revision = 2,
+        UpdatedAt = DateTime.UtcNow
+    };
+
+    public bool DeleteResult { get; set; } = true;
+    public bool ThrowsNotFound { get; set; }
+    public bool ThrowsUnauthorized { get; set; }
+
+    public Task<Design?> GetDesignAsync(ClaimsPrincipal principal, string roomId)
+    {
+        ThrowIfConfigured();
+        return Task.FromResult(GetResult);
+    }
+
+    public Task<Design> SaveDesignAsync(ClaimsPrincipal principal, string roomId, SaveDesignDto saveDesignDto)
+    {
+        ThrowIfConfigured();
+        SaveResult.RoomId = roomId;
+        SaveResult.Nodes = saveDesignDto.Nodes;
+        SaveResult.Edges = saveDesignDto.Edges;
+        return Task.FromResult(SaveResult);
+    }
+
+    public Task<Design> CreateInitialDesignAsync(string roomId, string userId)
+    {
+        return Task.FromResult(new Design
+        {
+            Id = "design-1",
+            RoomId = roomId,
+            UpdatedByUserId = userId,
+            Nodes = [],
+            Edges = [],
+            Revision = 0,
+            UpdatedAt = DateTime.UtcNow
+        });
+    }
+
+    public Task<bool> DeleteDesignAsync(ClaimsPrincipal principal, string roomId)
+    {
+        ThrowIfConfigured();
+        return Task.FromResult(DeleteResult);
+    }
+
+    private void ThrowIfConfigured()
+    {
+        if (ThrowsNotFound)
+        {
+            throw new KeyNotFoundException("Room not found");
+        }
+
+        if (ThrowsUnauthorized)
+        {
+            throw new UnauthorizedAccessException("Forbidden");
+        }
     }
 }

@@ -28,6 +28,8 @@ builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
+builder.Services.AddScoped<IRoomAccessService, RoomAccessService>();
+builder.Services.AddScoped<IDesignService, DesignService>();
 
 var app = builder.Build();
 

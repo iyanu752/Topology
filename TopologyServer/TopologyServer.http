@@ -44,7 +44,7 @@ Authorization: Bearer {{AccessToken}}
 
 {
   "type": "Private",
-  "roomKey": "{{RoomKey}}"
+  "roomKey": {{RoomKey}}
 }
 
 ###
@@ -85,5 +85,60 @@ Authorization: Bearer {{AccessToken}}
   "id": "{{RoomId}}",
   "roomKey": {{RoomKey}}
 }
+
+###
+
+### Get room design
+GET {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/design
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
+
+###
+
+### Save room design
+PUT {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/design
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "nodes": [
+    {
+      "id": "node-1",
+      "type": "Server",
+      "label": "API Server",
+      "x": 120,
+      "y": 80,
+      "properties": {
+        "replicas": 2
+      }
+    },
+    {
+      "id": "node-2",
+      "type": "Database",
+      "label": "MongoDB",
+      "x": 420,
+      "y": 80,
+      "properties": {
+        "engine": "MongoDB"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "sourceNodeId": "node-1",
+      "targetNodeId": "node-2",
+      "label": "reads/writes"
+    }
+  ]
+}
+
+###
+
+### Delete room design
+DELETE {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/design
+Accept: application/json
+Authorization: Bearer {{AccessToken}}
 
 ###

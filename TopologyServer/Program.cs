@@ -35,6 +35,10 @@ builder.Services.AddSingleton<ComponentDefinitionSeedHelper>();
 builder.Services.AddSingleton<ConnectionRuleSeedHelper>();
 builder.Services.AddScoped<IConnectionRuleService, ConnectionRuleService>();
 builder.Services.AddScoped<IDesignValidationService, DesignValidationService>();
+builder.Services.AddScoped<ISimulationService, SimulationService>();
+builder.Services.AddScoped<ISimulationScenarioHandler, DatabaseFailureSimulationHandler>();
+builder.Services.AddScoped<ISimulationScenarioHandler, NormalTrafficSimulationHandler>();
+builder.Services.AddScoped<ISimulationScenarioHandler, HighTrafficSimulationHandler>();
 
 var app = builder.Build();
 
@@ -52,3 +56,6 @@ app.MapControllers();
 app.Run();
 
 public partial class Program { }
+
+
+

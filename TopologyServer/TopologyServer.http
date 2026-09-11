@@ -105,7 +105,7 @@ Authorization: Bearer {{AccessToken}}
   "nodes": [
     {
       "id": "node-1",
-      "type": "Server",
+      "type": "Service",
       "label": "API Server",
       "x": 120,
       "y": 80,
@@ -120,7 +120,10 @@ Authorization: Bearer {{AccessToken}}
       "x": 420,
       "y": 80,
       "properties": {
-        "engine": "MongoDB"
+        "engine": "MongoDB",
+        "replicas": 1,
+        "backupEnabled": false,
+        "failoverEnabled": false
       }
     }
   ],
@@ -218,6 +221,59 @@ Authorization: Bearer {{AccessToken}}
       "label": "direct connection"
     }
   ]
+}
+
+###
+###
+
+### Run database failure simulation
+POST {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/simulations/run
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "scenario": "DatabaseFailure",
+  "trafficPerSecond": 2500,
+  "hasCriticalWrites": true,
+  "failedNodeIds": ["node-2"]
+}
+
+###
+
+
+###
+
+### Run normal traffic simulation
+POST {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/simulations/run
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "scenario": "NormalTraffic",
+  "trafficPerSecond": 300,
+  "readPercentage": 70,
+  "writePercentage": 30,
+  "hasCriticalWrites": false,
+  "failedNodeIds": []
+}
+
+###
+
+### Run high traffic simulation
+POST {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/simulations/run
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "scenario": "HighTraffic",
+  "trafficPerSecond": 2500,
+  "readPercentage": 85,
+  "writePercentage": 15,
+  "hasCriticalWrites": false,
+  "failedNodeIds": []
 }
 
 ###

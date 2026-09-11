@@ -142,3 +142,22 @@ Accept: application/json
 Authorization: Bearer {{AccessToken}}
 
 ###
+###
+
+### Get component library
+GET {{TopologyServer_HostAddress}}/api/components
+Accept: application/json
+
+###
+
+### Get database component definition
+GET {{TopologyServer_HostAddress}}/api/components/Database
+Accept: application/json
+
+###
+
+### Seed default component library
+POST {{TopologyServer_HostAddress}}/api/components/seed
+Accept: application/json
+
+###

@@ -22,6 +22,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakeAuthService AuthService { get; } = new();
     public FakeRoomService RoomService { get; } = new();
     public FakeDesignService DesignService { get; } = new();
+    public FakeComponentLibraryService ComponentLibraryService { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -50,9 +51,11 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IAuthService>();
             services.RemoveAll<IRoomService>();
             services.RemoveAll<IDesignService>();
+            services.RemoveAll<IComponentLibraryService>();
             services.AddSingleton<IAuthService>(AuthService);
             services.AddSingleton<IRoomService>(RoomService);
             services.AddSingleton<IDesignService>(DesignService);
+            services.AddSingleton<IComponentLibraryService>(ComponentLibraryService);
         });
     }
 }
@@ -201,5 +204,59 @@ public sealed class FakeDesignService : IDesignService
         {
             throw new UnauthorizedAccessException("Forbidden");
         }
+    }
+}
+
+public sealed class FakeComponentLibraryService : IComponentLibraryService
+{
+    public IReadOnlyList<ComponentDefinition> Components { get; set; } =
+    [
+        new ComponentDefinition
+        {
+            Id = "component-database",
+            Type = ComponentType.Database,
+            Label = "Database",
+            Category = ComponentCategory.Data,
+            Description = "Stores persistent application data.",
+            Properties =
+            [
+                new ComponentPropertyDefinition
+                {
+                    Key = "engine",
+                    Label = "Engine",
+                    InputType = "select",
+                    DefaultValue = "Postgres",
+                    Options = ["Postgres", "MySQL", "MongoDB"],
+                    Required = true
+                }
+            ]
+        },
+        new ComponentDefinition
+        {
+            Id = "component-service",
+            Type = ComponentType.Service,
+            Label = "Service",
+            Category = ComponentCategory.Compute,
+            Description = "Runs application logic.",
+            Properties = []
+        }
+    ];
+
+    public bool SeedCalled { get; private set; }
+
+    public Task<IReadOnlyList<ComponentDefinition>> GetComponentsAsync()
+    {
+        return Task.FromResult(Components);
+    }
+
+    public Task<ComponentDefinition?> GetComponentByTypeAsync(ComponentType type)
+    {
+        return Task.FromResult(Components.FirstOrDefault(component => component.Type == type));
+    }
+
+    public Task SeedDefaultComponentsAsync()
+    {
+        SeedCalled = true;
+        return Task.CompletedTask;
     }
 }

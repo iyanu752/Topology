@@ -30,6 +30,8 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IRoomService, RoomService>();
 builder.Services.AddScoped<IRoomAccessService, RoomAccessService>();
 builder.Services.AddScoped<IDesignService, DesignService>();
+builder.Services.AddScoped<IComponentLibraryService, ComponentLibraryService>();
+builder.Services.AddSingleton<ComponentDefinitionSeedHelper>();
 
 var app = builder.Build();
 

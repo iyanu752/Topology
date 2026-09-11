@@ -9,17 +9,20 @@ public class DesignService : IDesignService
     private readonly ILogger<DesignService> _logger;
     private readonly IAuthService _authService;
     private readonly IRoomAccessService _roomAccessService;
+    private readonly IDesignValidationService _designValidationService;
 
     public DesignService(
         IMongoDatabase database,
         ILogger<DesignService> logger,
         IAuthService authService,
-        IRoomAccessService roomAccessService)
+        IRoomAccessService roomAccessService,
+        IDesignValidationService designValidationService)
     {
         _design = database.GetCollection<Design>("Design");
         _logger = logger;
         _authService = authService;
         _roomAccessService = roomAccessService;
+        _designValidationService = designValidationService;
     }
 
     public async Task<Design?> GetDesignAsync(ClaimsPrincipal principal, string roomId)
@@ -34,6 +37,16 @@ public class DesignService : IDesignService
     {
         var user = await _authService.GetOrCreateUserAsync(principal);
         await _roomAccessService.EnsureRoomMemberAsync(roomId, user.Id!);
+
+        var validation = await _designValidationService.ValidateDesignAsync(saveDesignDto);
+        if (!validation.IsValid)
+        {
+            _logger.LogWarning(
+                "Design for room {RoomId} failed validation with {IssueCount} issues",
+                roomId,
+                validation.Issues.Count);
+            throw new DesignValidationException(validation);
+        }
 
         var existingDesign = await _design.Find(design => design.RoomId == roomId).FirstOrDefaultAsync();
         if (existingDesign is null)

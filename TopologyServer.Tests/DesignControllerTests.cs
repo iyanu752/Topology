@@ -81,7 +81,7 @@ public sealed class DesignControllerTests : IClassFixture<TestWebApplicationFact
                 new Node
                 {
                     Id = "node-1",
-                    Type = NodeType.Server,
+                    Type = ComponentType.Service,
                     Label = "API Server",
                     X = 120,
                     Y = 80
@@ -137,6 +137,22 @@ public sealed class DesignControllerTests : IClassFixture<TestWebApplicationFact
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+
+    [Fact]
+    public async Task SaveDesign_WhenValidationFails_ReturnsBadRequest()
+    {
+        ResetDesignService();
+        _factory.DesignService.ThrowsValidation = true;
+        using var client = CreateAuthenticatedClient();
+        var dto = new SaveDesignDto { Nodes = [], Edges = [] };
+
+        var response = await client.PutAsJsonAsync("/api/rooms/room-1/design", dto, JsonOptions);
+        var result = await response.Content.ReadFromJsonAsync<DesignValidationResult>(JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.NotNull(result);
+        Assert.False(result.IsValid);
+    }
     [Fact]
     public async Task DeleteDesign_WhenDesignExists_ReturnsNoContent()
     {
@@ -205,5 +221,6 @@ public sealed class DesignControllerTests : IClassFixture<TestWebApplicationFact
         _factory.DesignService.DeleteResult = true;
         _factory.DesignService.ThrowsNotFound = false;
         _factory.DesignService.ThrowsUnauthorized = false;
+        _factory.DesignService.ThrowsValidation = false;
     }
 }

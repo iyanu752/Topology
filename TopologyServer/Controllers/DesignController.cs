@@ -45,6 +45,11 @@ public class DesignController : ControllerBase
             var design = await _designService.SaveDesignAsync(User, roomId, saveDesignDto);
             return Ok(design);
         }
+        catch (DesignValidationException exception)
+        {
+            _logger.LogWarning("Design validation failed for room {RoomId}", roomId);
+            return BadRequest(exception.Result);
+        }
         catch (KeyNotFoundException)
         {
             _logger.LogWarning("Room not found while saving design for room {RoomId}", roomId);

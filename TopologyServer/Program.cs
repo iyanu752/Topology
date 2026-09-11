@@ -32,6 +32,9 @@ builder.Services.AddScoped<IRoomAccessService, RoomAccessService>();
 builder.Services.AddScoped<IDesignService, DesignService>();
 builder.Services.AddScoped<IComponentLibraryService, ComponentLibraryService>();
 builder.Services.AddSingleton<ComponentDefinitionSeedHelper>();
+builder.Services.AddSingleton<ConnectionRuleSeedHelper>();
+builder.Services.AddScoped<IConnectionRuleService, ConnectionRuleService>();
+builder.Services.AddScoped<IDesignValidationService, DesignValidationService>();
 
 var app = builder.Build();
 

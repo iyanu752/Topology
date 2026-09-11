@@ -23,6 +23,9 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakeRoomService RoomService { get; } = new();
     public FakeDesignService DesignService { get; } = new();
     public FakeComponentLibraryService ComponentLibraryService { get; } = new();
+    public FakeRoomAccessService RoomAccessService { get; } = new();
+    public FakeConnectionRuleService ConnectionRuleService { get; } = new();
+    public FakeDesignValidationService DesignValidationService { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -52,10 +55,16 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.RemoveAll<IRoomService>();
             services.RemoveAll<IDesignService>();
             services.RemoveAll<IComponentLibraryService>();
+            services.RemoveAll<IRoomAccessService>();
+            services.RemoveAll<IConnectionRuleService>();
+            services.RemoveAll<IDesignValidationService>();
             services.AddSingleton<IAuthService>(AuthService);
             services.AddSingleton<IRoomService>(RoomService);
             services.AddSingleton<IDesignService>(DesignService);
             services.AddSingleton<IComponentLibraryService>(ComponentLibraryService);
+            services.AddSingleton<IRoomAccessService>(RoomAccessService);
+            services.AddSingleton<IConnectionRuleService>(ConnectionRuleService);
+            services.AddSingleton<IDesignValidationService>(DesignValidationService);
         });
     }
 }
@@ -157,6 +166,7 @@ public sealed class FakeDesignService : IDesignService
     public bool DeleteResult { get; set; } = true;
     public bool ThrowsNotFound { get; set; }
     public bool ThrowsUnauthorized { get; set; }
+    public bool ThrowsValidation { get; set; }
 
     public Task<Design?> GetDesignAsync(ClaimsPrincipal principal, string roomId)
     {
@@ -204,6 +214,22 @@ public sealed class FakeDesignService : IDesignService
         {
             throw new UnauthorizedAccessException("Forbidden");
         }
+
+        if (ThrowsValidation)
+        {
+            throw new DesignValidationException(new DesignValidationResult
+            {
+                Issues =
+                [
+                    new DesignValidationIssue
+                    {
+                        Severity = ValidationSeverity.Error,
+                        Message = "Design is invalid",
+                        EdgeId = "edge-1"
+                    }
+                ]
+            });
+        }
     }
 }
 
@@ -244,10 +270,7 @@ public sealed class FakeComponentLibraryService : IComponentLibraryService
 
     public bool SeedCalled { get; private set; }
 
-    public Task<IReadOnlyList<ComponentDefinition>> GetComponentsAsync()
-    {
-        return Task.FromResult(Components);
-    }
+    public Task<IReadOnlyList<ComponentDefinition>> GetComponentsAsync() => Task.FromResult(Components);
 
     public Task<ComponentDefinition?> GetComponentByTypeAsync(ComponentType type)
     {
@@ -259,4 +282,81 @@ public sealed class FakeComponentLibraryService : IComponentLibraryService
         SeedCalled = true;
         return Task.CompletedTask;
     }
+}
+
+public sealed class FakeRoomAccessService : IRoomAccessService
+{
+    public bool ThrowsNotFound { get; set; }
+    public bool ThrowsUnauthorized { get; set; }
+
+    public Task<Room> EnsureRoomMemberAsync(string roomId, string userId) => EnsureAccessAsync(roomId, userId);
+
+    public Task<Room> EnsureRoomOwnerAsync(string roomId, string userId) => EnsureAccessAsync(roomId, userId);
+
+    private Task<Room> EnsureAccessAsync(string roomId, string userId)
+    {
+        if (ThrowsNotFound)
+        {
+            throw new KeyNotFoundException("Room not found");
+        }
+
+        if (ThrowsUnauthorized)
+        {
+            throw new UnauthorizedAccessException("Forbidden");
+        }
+
+        return Task.FromResult(new Room
+        {
+            Id = roomId,
+            OwnerUserId = userId,
+            MemberUserIds = [userId],
+            Type = AccessType.Public,
+            CreatedAt = DateTime.UtcNow
+        });
+    }
+}
+
+public sealed class FakeConnectionRuleService : IConnectionRuleService
+{
+    public IReadOnlyList<ConnectionRule> Rules { get; set; } =
+    [
+        new ConnectionRule
+        {
+            SourceType = ComponentType.Client,
+            TargetType = ComponentType.Database,
+            IsAllowed = false,
+            Severity = ValidationSeverity.Error,
+            Message = "Clients should not connect directly to databases."
+        },
+        new ConnectionRule
+        {
+            SourceType = ComponentType.Service,
+            TargetType = ComponentType.Database,
+            IsAllowed = true,
+            Severity = ValidationSeverity.Info,
+            Message = "Services can connect to databases."
+        }
+    ];
+
+    public bool SeedCalled { get; private set; }
+
+    public Task<IReadOnlyList<ConnectionRule>> GetRulesAsync() => Task.FromResult(Rules);
+
+    public Task<ConnectionRule?> GetRuleAsync(ComponentType sourceType, ComponentType targetType)
+    {
+        return Task.FromResult(Rules.FirstOrDefault(rule => rule.SourceType == sourceType && rule.TargetType == targetType));
+    }
+
+    public Task SeedDefaultRulesAsync()
+    {
+        SeedCalled = true;
+        return Task.CompletedTask;
+    }
+}
+
+public sealed class FakeDesignValidationService : IDesignValidationService
+{
+    public DesignValidationResult Result { get; set; } = new();
+
+    public Task<DesignValidationResult> ValidateDesignAsync(SaveDesignDto design) => Task.FromResult(Result);
 }

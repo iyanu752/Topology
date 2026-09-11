@@ -161,3 +161,63 @@ POST {{TopologyServer_HostAddress}}/api/components/seed
 Accept: application/json
 
 ###
+###
+
+### Get connection rules
+GET {{TopologyServer_HostAddress}}/api/connection-rules
+Accept: application/json
+
+###
+
+### Get one connection rule
+GET {{TopologyServer_HostAddress}}/api/connection-rules/Client/Database
+Accept: application/json
+
+###
+
+### Seed default connection rules
+POST {{TopologyServer_HostAddress}}/api/connection-rules/seed
+Accept: application/json
+
+###
+
+### Validate room design
+POST {{TopologyServer_HostAddress}}/api/rooms/{{RoomId}}/design/validate
+Accept: application/json
+Content-Type: application/json
+Authorization: Bearer {{AccessToken}}
+
+{
+  "nodes": [
+    {
+      "id": "client-1",
+      "type": "Client",
+      "label": "Client",
+      "x": 80,
+      "y": 80,
+      "properties": {}
+    },
+    {
+      "id": "db-1",
+      "type": "Database",
+      "label": "Database",
+      "x": 360,
+      "y": 80,
+      "properties": {
+        "engine": "Postgres",
+        "replicas": 1,
+        "storageGb": 20
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "sourceNodeId": "client-1",
+      "targetNodeId": "db-1",
+      "label": "direct connection"
+    }
+  ]
+}
+
+###

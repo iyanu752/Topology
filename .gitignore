@@ -5,6 +5,8 @@ TopologyClient/node_modules/
 # Build output
 dist/
 TopologyClient/dist/
+TopologyClient/.next/
+TopologyClient/out/
 
 # Logs
 *.log

@@ -19,7 +19,7 @@ services:
       args:
         NODE_VERSION: 24.5.0
     ports:
-      - "5173:80"
+      - "3000:3000"
     depends_on:
       - server
 
@@ -33,11 +33,11 @@ services:
       args:
         NODE_VERSION: 24.5.0
     ports:
-      - "5173:5173"
+      - "3000:3000"
     volumes:
       - ./TopologyClient:/app
       - /app/node_modules
     environment:
-      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
     depends_on:
       - server

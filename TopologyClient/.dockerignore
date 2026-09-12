@@ -1,7 +1,10 @@
 node_modules
-dist
+.next
+out
 .git
-.vscode
-
+.gitignore
+Dockerfile
+Dockerfile.dev
+README.md
 *.log
-npm-debug.log*
+.env*

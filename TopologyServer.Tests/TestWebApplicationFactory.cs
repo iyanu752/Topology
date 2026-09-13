@@ -259,6 +259,15 @@ public sealed class FakeComponentLibraryService : IComponentLibraryService
         },
         new ComponentDefinition
         {
+            Id = "component-api-gateway",
+            Type = ComponentType.ApiGateway,
+            Label = "API Gateway",
+            Category = ComponentCategory.Network,
+            Description = "Routes API traffic.",
+            Properties = []
+        },
+        new ComponentDefinition
+        {
             Id = "component-service",
             Type = ComponentType.Service,
             Label = "Service",
@@ -327,6 +336,22 @@ public sealed class FakeConnectionRuleService : IConnectionRuleService
             IsAllowed = false,
             Severity = ValidationSeverity.Error,
             Message = "Clients should not connect directly to databases."
+        },
+        new ConnectionRule
+        {
+            SourceType = ComponentType.Client,
+            TargetType = ComponentType.ApiGateway,
+            IsAllowed = true,
+            Severity = ValidationSeverity.Info,
+            Message = "Clients can call API gateways."
+        },
+        new ConnectionRule
+        {
+            SourceType = ComponentType.ApiGateway,
+            TargetType = ComponentType.Service,
+            IsAllowed = true,
+            Severity = ValidationSeverity.Info,
+            Message = "API gateways can route to services."
         },
         new ConnectionRule
         {

@@ -6,6 +6,7 @@ public enum ComponentType
     Service,
     Cache,
     Client,
+    ApiGateway,
     Queue,
     LoadBalancer,
     ExternalApi

@@ -79,7 +79,7 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
     [Fact]
     public async Task RunSimulation_WithNormalTrafficAndBalancedDesign_ReturnsLowRisk()
     {
-        ResetDesignServiceWithTrafficDesign(includeLoadBalancer: true, includeCache: true, includeQueue: true, serviceReplicas: 3, databaseReplicas: 2);
+        ResetDesignServiceWithTrafficDesign(includeApiGateway: true, includeLoadBalancer: true, includeCache: true, includeQueue: true, serviceReplicas: 3, databaseReplicas: 2);
         using var client = CreateAuthenticatedClient();
         var dto = new RunSimulationDto
         {
@@ -101,7 +101,7 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
     [Fact]
     public async Task RunSimulation_WithHighReadTrafficAndMissingScalingComponents_ReturnsCriticalRisk()
     {
-        ResetDesignServiceWithTrafficDesign(includeLoadBalancer: false, includeCache: false, includeQueue: false, serviceReplicas: 1, databaseReplicas: 1);
+        ResetDesignServiceWithTrafficDesign(includeApiGateway: false, includeLoadBalancer: false, includeCache: false, includeQueue: false, serviceReplicas: 1, databaseReplicas: 1);
         using var client = CreateAuthenticatedClient();
         var dto = new RunSimulationDto
         {
@@ -117,6 +117,7 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(result);
         Assert.Equal(SimulationRiskLevel.Critical, result.RiskLevel);
+        Assert.Contains(result.Recommendations, recommendation => recommendation.Contains("API gateway"));
         Assert.Contains(result.Recommendations, recommendation => recommendation.Contains("load balancer"));
         Assert.Contains(result.Recommendations, recommendation => recommendation.Contains("cache"));
     }
@@ -210,7 +211,7 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
         ResetDesignServiceFlags();
     }
 
-    private void ResetDesignServiceWithTrafficDesign(bool includeLoadBalancer, bool includeCache, bool includeQueue, int serviceReplicas, int databaseReplicas)
+    private void ResetDesignServiceWithTrafficDesign(bool includeApiGateway, bool includeLoadBalancer, bool includeCache, bool includeQueue, int serviceReplicas, int databaseReplicas)
     {
         var nodes = new List<Node>
         {
@@ -252,6 +253,33 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
                 Label = "reads/writes"
             }
         };
+
+        if (includeApiGateway)
+        {
+            nodes.Add(new Node
+            {
+                Id = "gateway-1",
+                Type = ComponentType.ApiGateway,
+                Label = "API Gateway",
+                X = 80,
+                Y = 80,
+                Properties = new Dictionary<string, object>
+                {
+                    ["replicas"] = 2,
+                    ["rateLimitPerMinute"] = 120000,
+                    ["authEnabled"] = true,
+                    ["requestTimeoutMs"] = 3000,
+                    ["retriesEnabled"] = true
+                }
+            });
+            edges.Add(new Edge
+            {
+                Id = "edge-gateway-api",
+                SourceNodeId = "gateway-1",
+                TargetNodeId = "api-1",
+                Label = "routes"
+            });
+        }
 
         if (includeLoadBalancer)
         {
@@ -330,3 +358,4 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
         _factory.DesignService.ThrowsValidation = false;
     }
 }
+

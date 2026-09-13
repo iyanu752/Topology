@@ -104,6 +104,20 @@ Authorization: Bearer {{AccessToken}}
 {
   "nodes": [
     {
+      "id": "gateway-1",
+      "type": "ApiGateway",
+      "label": "API Gateway",
+      "x": 80,
+      "y": 80,
+      "properties": {
+        "replicas": 2,
+        "rateLimitPerMinute": 6000,
+        "authEnabled": true,
+        "requestTimeoutMs": 3000,
+        "retriesEnabled": true
+      }
+    },
+    {
       "id": "node-1",
       "type": "Service",
       "label": "API Server",
@@ -128,6 +142,12 @@ Authorization: Bearer {{AccessToken}}
     }
   ],
   "edges": [
+    {
+      "id": "edge-gateway-service",
+      "sourceNodeId": "gateway-1",
+      "targetNodeId": "node-1",
+      "label": "routes"
+    },
     {
       "id": "edge-1",
       "sourceNodeId": "node-1",
@@ -159,6 +179,12 @@ Accept: application/json
 
 ###
 
+### Get API gateway component definition
+GET {{TopologyServer_HostAddress}}/api/components/ApiGateway
+Accept: application/json
+
+###
+
 ### Seed default component library
 POST {{TopologyServer_HostAddress}}/api/components/seed
 Accept: application/json
@@ -174,6 +200,12 @@ Accept: application/json
 
 ### Get one connection rule
 GET {{TopologyServer_HostAddress}}/api/connection-rules/Client/Database
+Accept: application/json
+
+###
+
+### Get API gateway connection rule
+GET {{TopologyServer_HostAddress}}/api/connection-rules/Client/ApiGateway
 Accept: application/json
 
 ###
@@ -214,6 +246,12 @@ Authorization: Bearer {{AccessToken}}
     }
   ],
   "edges": [
+    {
+      "id": "edge-gateway-service",
+      "sourceNodeId": "gateway-1",
+      "targetNodeId": "node-1",
+      "label": "routes"
+    },
     {
       "id": "edge-1",
       "sourceNodeId": "client-1",

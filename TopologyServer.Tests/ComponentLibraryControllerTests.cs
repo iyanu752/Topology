@@ -31,6 +31,7 @@ public sealed class ComponentLibraryControllerTests : IClassFixture<TestWebAppli
         Assert.NotNull(components);
         Assert.Contains(components, component => component.Type == ComponentType.Database);
         Assert.Contains(components, component => component.Type == ComponentType.Service);
+        Assert.Contains(components, component => component.Type == ComponentType.ApiGateway);
     }
 
     [Fact]
@@ -45,6 +46,20 @@ public sealed class ComponentLibraryControllerTests : IClassFixture<TestWebAppli
         Assert.NotNull(component);
         Assert.Equal(ComponentType.Database, component.Type);
         Assert.Equal(ComponentCategory.Data, component.Category);
+    }
+
+    [Fact]
+    public async Task GetComponent_WhenApiGatewayExists_ReturnsComponent()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/components/ApiGateway");
+        var component = await response.Content.ReadFromJsonAsync<ComponentDefinition>(JsonOptions);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(component);
+        Assert.Equal(ComponentType.ApiGateway, component.Type);
+        Assert.Equal(ComponentCategory.Network, component.Category);
     }
 
     [Fact]

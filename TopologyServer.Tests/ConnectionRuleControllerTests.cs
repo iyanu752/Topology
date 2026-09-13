@@ -30,6 +30,8 @@ public sealed class ConnectionRuleControllerTests : IClassFixture<TestWebApplica
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.NotNull(rules);
         Assert.Contains(rules, rule => rule.SourceType == ComponentType.Client && rule.TargetType == ComponentType.Database);
+        Assert.Contains(rules, rule => rule.SourceType == ComponentType.Client && rule.TargetType == ComponentType.ApiGateway);
+        Assert.Contains(rules, rule => rule.SourceType == ComponentType.ApiGateway && rule.TargetType == ComponentType.Service);
     }
 
     [Fact]
@@ -44,6 +46,20 @@ public sealed class ConnectionRuleControllerTests : IClassFixture<TestWebApplica
         Assert.NotNull(rule);
         Assert.False(rule.IsAllowed);
         Assert.Equal(ValidationSeverity.Error, rule.Severity);
+    }
+
+    [Fact]
+    public async Task GetRule_WhenApiGatewayRuleExists_ReturnsRule()
+    {
+        using var client = _factory.CreateClient();
+
+        var response = await client.GetAsync("/api/connection-rules/Client/ApiGateway");
+        var rule = await response.Content.ReadFromJsonAsync<ConnectionRule>(JsonOptions);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(rule);
+        Assert.True(rule.IsAllowed);
+        Assert.Equal(ValidationSeverity.Info, rule.Severity);
     }
 
     [Fact]

@@ -7,6 +7,7 @@ public class ComponentDefinitionSeedHelper
         return
         [
             CreateClientDefinition(),
+            CreateApiGatewayDefinition(),
             CreateLoadBalancerDefinition(),
             CreateServiceDefinition(),
             CreateDatabaseDefinition(),
@@ -28,6 +29,25 @@ public class ComponentDefinitionSeedHelper
             [
                 Select("clientType", "Client Type", ["Browser", "Mobile", "Desktop", "CLI"], "Browser", true),
                 Text("platform", "Platform", "Web", false)
+            ]
+        };
+    }
+
+    public ComponentDefinition CreateApiGatewayDefinition()
+    {
+        return new ComponentDefinition
+        {
+            Type = ComponentType.ApiGateway,
+            Label = "API Gateway",
+            Category = ComponentCategory.Network,
+            Description = "Routes API traffic and centralizes cross cutting concerns like auth, rate limiting, retries, and request timeouts.",
+            Properties =
+            [
+                Number("replicas", "Replicas", "2", 1, 20, true),
+                Number("rateLimitPerMinute", "Rate Limit Per Minute", "6000", 1, 1000000, false),
+                Checkbox("authEnabled", "Auth Enabled", "true", false),
+                Number("requestTimeoutMs", "Request Timeout MS", "3000", 100, 120000, false),
+                Checkbox("retriesEnabled", "Retries Enabled", "true", false)
             ]
         };
     }
@@ -56,7 +76,7 @@ public class ComponentDefinitionSeedHelper
             Type = ComponentType.Service,
             Label = "Service",
             Category = ComponentCategory.Compute,
-            Description = "A deployable application service, API",
+            Description = "A deployable application service or API.",
             Properties =
             [
                 Number("replicas", "Replicas", "1", 1, 100, true),
@@ -80,7 +100,9 @@ public class ComponentDefinitionSeedHelper
                 Select("databaseType", "Database Type", ["SQL", "NoSQL"], "SQL", true),
                 Select("engine", "Engine", ["Postgres", "MySQL", "MongoDB", "DynamoDB"], "Postgres", true),
                 Number("replicas", "Replicas", "1", 1, 20, true),
-                Number("storageGb", "Storage GB", "20", 1, 10000, true)
+                Number("storageGb", "Storage GB", "20", 1, 10000, true),
+                Checkbox("backupEnabled", "Backup Enabled", "true", false),
+                Checkbox("failoverEnabled", "Failover Enabled", "false", false)
             ]
         };
     }
@@ -172,6 +194,22 @@ public class ComponentDefinitionSeedHelper
             DefaultValue = defaultValue,
             Min = min,
             Max = max,
+            Required = required
+        };
+    }
+
+    private static ComponentPropertyDefinition Checkbox(
+        string key,
+        string label,
+        string defaultValue,
+        bool required)
+    {
+        return new ComponentPropertyDefinition
+        {
+            Key = key,
+            Label = label,
+            InputType = "checkbox",
+            DefaultValue = defaultValue,
             Required = required
         };
     }

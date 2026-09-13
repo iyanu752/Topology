@@ -8,6 +8,7 @@ public static class TrafficSimulationEvaluator
         var databases = design.Nodes.Where(node => node.Type == ComponentType.Database).ToList();
         var caches = design.Nodes.Where(node => node.Type == ComponentType.Cache).ToList();
         var queues = design.Nodes.Where(node => node.Type == ComponentType.Queue).ToList();
+        var apiGateways = design.Nodes.Where(node => node.Type == ComponentType.ApiGateway).ToList();
         var loadBalancers = design.Nodes.Where(node => node.Type == ComponentType.LoadBalancer).ToList();
         var findings = new List<string>();
         var impact = new List<string>();
@@ -46,11 +47,58 @@ public static class TrafficSimulationEvaluator
             recommendations.Add("Increase service replicas or scale compute resources.");
         }
 
+        if (!apiGateways.Any())
+        {
+            riskScore += isHighTrafficScenario ? 2 : 1;
+            findings.Add("No API gateway was found in front of the services.");
+            recommendations.Add("Add an API gateway to centralize routing, auth, throttling, and request policies.");
+        }
+        else
+        {
+            AddAffectedNodes(affectedNodeIds, apiGateways);
+            findings.Add("An API gateway is present for public API traffic.");
+
+            var gatewayReplicaCount = apiGateways.Sum(gateway => NodePropertyReader.GetInt(gateway, "replicas", 1));
+            var estimatedGatewayCapacity = Math.Max(1, gatewayReplicaCount) * 1000;
+            var totalRateLimitPerMinute = apiGateways.Sum(gateway => NodePropertyReader.GetInt(gateway, "rateLimitPerMinute", 0));
+            var hasRateLimit = totalRateLimitPerMinute > 0;
+            var hasAuth = apiGateways.Any(gateway => NodePropertyReader.GetBool(gateway, "authEnabled", false));
+
+            if (trafficPerSecond > estimatedGatewayCapacity)
+            {
+                riskScore += 2;
+                findings.Add($"Traffic of {trafficPerSecond} requests per second is above the estimated API gateway capacity of {estimatedGatewayCapacity}.");
+                recommendations.Add("Scale API gateway replicas before high traffic events.");
+            }
+            else
+            {
+                findings.Add($"Estimated API gateway capacity can handle {trafficPerSecond} requests per second.");
+            }
+
+            if (!hasRateLimit && isHighTrafficScenario)
+            {
+                riskScore += 1;
+                findings.Add("No API gateway rate limit is configured for the high traffic event.");
+                recommendations.Add("Configure API gateway rate limits to protect downstream services.");
+            }
+            else if (hasRateLimit)
+            {
+                findings.Add($"API gateway rate limiting is configured at {totalRateLimitPerMinute} request(s) per minute.");
+            }
+
+            if (!hasAuth)
+            {
+                riskScore += 1;
+                findings.Add("API gateway auth is not enabled.");
+                recommendations.Add("Enable auth at the API gateway for public API traffic.");
+            }
+        }
+
         if (trafficPerSecond > 500 && !loadBalancers.Any())
         {
             riskScore += 2;
             findings.Add("No load balancer was found for elevated traffic.");
-            recommendations.Add("Add a load balancer to distribute traffic across service replicas.");
+            recommendations.Add("Add a load balancer to distribute traffic across service or API gateway replicas.");
         }
         else if (loadBalancers.Any())
         {

@@ -37,3 +37,5 @@ TopologyServer/obj/
 *.suo
 *.userosscache
 *.sln.docstates
+TopologyClient/next-dev*.log
+

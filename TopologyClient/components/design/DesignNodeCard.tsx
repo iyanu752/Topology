@@ -11,13 +11,15 @@ export type DesignNode = {
 
 type DesignNodeCardProps = {
   node: DesignNode;
+  onContextMenu: (event: React.MouseEvent<HTMLButtonElement>, node: DesignNode) => void;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>, node: DesignNode) => void;
 };
 
-export function DesignNodeCard({ node, onPointerDown }: DesignNodeCardProps) {
+export function DesignNodeCard({ node, onContextMenu, onPointerDown }: DesignNodeCardProps) {
   return (
     <button
       type="button"
+      onContextMenu={(event) => onContextMenu(event, node)}
       onPointerDown={(event) => onPointerDown(event, node)}
       className="absolute flex h-20 w-20 touch-none cursor-grab select-none items-center justify-center rounded-md border border-emerald-500/50 bg-zinc-900 shadow-xl shadow-black/30 transition hover:border-emerald-300 active:cursor-grabbing"
       style={{ left: node.x, top: node.y }}
@@ -34,4 +36,3 @@ export function DesignNodeCard({ node, onPointerDown }: DesignNodeCardProps) {
     </button>
   );
 }
-

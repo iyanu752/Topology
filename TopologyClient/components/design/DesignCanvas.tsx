@@ -6,20 +6,32 @@ import { dragPayloadType } from "@/components/component-library/ComponentLibrary
 import { WelcomePanel } from "@/components/home/WelcomePanel";
 import { CanvasContextMenu } from "./CanvasContextMenu";
 import { CanvasToolbar } from "./CanvasToolbar";
-import { DesignNodeCard, type DesignNode } from "./DesignNodeCard";
+import { DesignEdgeLayer } from "./DesignEdgeLayer";
+import { DesignNodeCard, type DesignEdge, type DesignNode } from "./DesignNodeCard";
 import { NodeContextMenu } from "./NodeContextMenu";
+
+type CanvasState = {
+  nodes: DesignNode[];
+  edges: DesignEdge[];
+};
 
 type ActiveDrag = {
   nodeId: string;
   offsetX: number;
   offsetY: number;
-  startNodes: DesignNode[];
+  startState: CanvasState;
+};
+
+type ActiveConnection = {
+  fromNodeId: string;
+  toX: number;
+  toY: number;
 };
 
 type CanvasHistory = {
-  past: DesignNode[][];
-  present: DesignNode[];
-  future: DesignNode[][];
+  past: CanvasState[];
+  present: CanvasState;
+  future: CanvasState[];
 };
 
 type NodeContextMenuState = {
@@ -39,22 +51,24 @@ const nodeSize = 80;
 const zoomStep = 0.1;
 const minZoom = 0.5;
 const maxZoom = 2;
+const emptyCanvasState: CanvasState = { nodes: [], edges: [] };
 
 export function DesignCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const [history, setHistory] = useState<CanvasHistory>({ past: [], present: [], future: [] });
+  const [history, setHistory] = useState<CanvasHistory>({ past: [], present: emptyCanvasState, future: [] });
   const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
+  const [activeConnection, setActiveConnection] = useState<ActiveConnection | null>(null);
   const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState | null>(null);
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [clipboardNode, setClipboardNode] = useState<DesignNode | null>(null);
   const [zoom, setZoom] = useState(1);
 
-  const nodes = history.present;
+  const { nodes, edges } = history.present;
 
-  function commitNodes(nextNodes: DesignNode[]) {
+  function commitCanvasState(nextState: CanvasState) {
     setHistory((currentHistory) => ({
       past: [...currentHistory.past, currentHistory.present],
-      present: nextNodes,
+      present: nextState,
       future: []
     }));
   }
@@ -87,10 +101,10 @@ export function DesignCanvas() {
       y: position.y
     };
 
-    commitNodes([...nodes, newNode]);
+    commitCanvasState({ nodes: [...nodes, newNode], edges });
   }
 
-  function handleNodePointerDown(event: React.PointerEvent<HTMLButtonElement>, node: DesignNode) {
+  function handleNodePointerDown(event: React.PointerEvent<HTMLDivElement>, node: DesignNode) {
     if (event.button !== 0) {
       return;
     }
@@ -106,17 +120,39 @@ export function DesignCanvas() {
       nodeId: node.id,
       offsetX: event.clientX - bounds.left - node.x * zoom,
       offsetY: event.clientY - bounds.top - node.y * zoom,
-      startNodes: nodes
+      startState: history.present
+    });
+  }
+
+  function handleConnectionStart(event: React.PointerEvent<HTMLButtonElement>, node: DesignNode) {
+    if (event.button !== 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    closeContextMenus();
+
+    setActiveConnection({
+      fromNodeId: node.id,
+      toX: node.x + nodeSize / 2,
+      toY: node.y + nodeSize / 2
     });
   }
 
   function handlePointerMove(event: React.PointerEvent<HTMLDivElement>) {
-    if (!activeDrag) {
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    if (!bounds) {
       return;
     }
 
-    const bounds = canvasRef.current?.getBoundingClientRect();
-    if (!bounds) {
+    if (activeConnection) {
+      const pointer = getCanvasPoint(event.clientX, event.clientY, bounds, zoom);
+      setActiveConnection({ ...activeConnection, toX: pointer.x, toY: pointer.y });
+      return;
+    }
+
+    if (!activeDrag) {
       return;
     }
 
@@ -126,10 +162,43 @@ export function DesignCanvas() {
 
     setHistory((currentHistory) => ({
       ...currentHistory,
-      present: currentHistory.present.map((node) =>
-        node.id === activeDrag.nodeId ? { ...node, x: position.x, y: position.y } : node
-      )
+      present: {
+        ...currentHistory.present,
+        nodes: currentHistory.present.nodes.map((node) =>
+          node.id === activeDrag.nodeId ? { ...node, x: position.x, y: position.y } : node
+        )
+      }
     }));
+  }
+
+  function handlePointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    finishConnection(event);
+    finishDrag();
+  }
+
+  function finishConnection(event: React.PointerEvent<HTMLDivElement>) {
+    if (!activeConnection) {
+      return;
+    }
+
+    const targetNodeId = getConnectionTargetNodeId(event.target);
+    if (targetNodeId && targetNodeId !== activeConnection.fromNodeId) {
+      const edgeExists = edges.some(
+        (edge) => edge.fromNodeId === activeConnection.fromNodeId && edge.toNodeId === targetNodeId
+      );
+
+      if (!edgeExists) {
+        const newEdge: DesignEdge = {
+          id: `${activeConnection.fromNodeId}-${targetNodeId}-${crypto.randomUUID()}`,
+          fromNodeId: activeConnection.fromNodeId,
+          toNodeId: targetNodeId
+        };
+
+        commitCanvasState({ nodes, edges: [...edges, newEdge] });
+      }
+    }
+
+    setActiveConnection(null);
   }
 
   function finishDrag() {
@@ -138,12 +207,12 @@ export function DesignCanvas() {
     }
 
     setHistory((currentHistory) => {
-      if (areNodeListsEqual(activeDrag.startNodes, currentHistory.present)) {
+      if (areCanvasStatesEqual(activeDrag.startState, currentHistory.present)) {
         return currentHistory;
       }
 
       return {
-        past: [...currentHistory.past, activeDrag.startNodes],
+        past: [...currentHistory.past, activeDrag.startState],
         present: currentHistory.present,
         future: []
       };
@@ -151,7 +220,7 @@ export function DesignCanvas() {
     setActiveDrag(null);
   }
 
-  function handleNodeContextMenu(event: React.MouseEvent<HTMLButtonElement>, node: DesignNode) {
+  function handleNodeContextMenu(event: React.MouseEvent<HTMLDivElement>, node: DesignNode) {
     event.preventDefault();
     event.stopPropagation();
     setCanvasContextMenu(null);
@@ -214,17 +283,24 @@ export function DesignCanvas() {
 
   function cutNode(node: DesignNode) {
     setClipboardNode(node);
-    commitNodes(nodes.filter((currentNode) => currentNode.id !== node.id));
+    removeNode(node);
   }
 
   function deleteNode(node: DesignNode) {
-    commitNodes(nodes.filter((currentNode) => currentNode.id !== node.id));
+    removeNode(node);
+  }
+
+  function removeNode(node: DesignNode) {
+    commitCanvasState({
+      nodes: nodes.filter((currentNode) => currentNode.id !== node.id),
+      edges: edges.filter((edge) => edge.fromNodeId !== node.id && edge.toNodeId !== node.id)
+    });
   }
 
   function duplicateNode(node: DesignNode) {
     const bounds = canvasRef.current?.getBoundingClientRect();
     const duplicate = createDuplicateNode(node, bounds, zoom);
-    commitNodes([...nodes, duplicate]);
+    commitCanvasState({ nodes: [...nodes, duplicate], edges });
   }
 
   function pasteCopiedNode(position?: { x: number; y: number }) {
@@ -242,7 +318,7 @@ export function DesignCanvas() {
         }
       : createDuplicateNode(clipboardNode, bounds, zoom);
 
-    commitNodes([...nodes, pastedNode]);
+    commitCanvasState({ nodes: [...nodes, pastedNode], edges });
   }
 
   function zoomOut() {
@@ -261,8 +337,11 @@ export function DesignCanvas() {
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDrop}
       onPointerMove={handlePointerMove}
-      onPointerUp={finishDrag}
-      onPointerCancel={finishDrag}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={() => {
+        setActiveConnection(null);
+        finishDrag();
+      }}
       className="relative min-h-screen overflow-hidden"
       aria-label="Design room"
     >
@@ -272,10 +351,13 @@ export function DesignCanvas() {
         className="absolute inset-0 origin-top-left"
         style={{ transform: `scale(${zoom})`, width: `${100 / zoom}%`, height: `${100 / zoom}%` }}
       >
+        <DesignEdgeLayer draftEdge={activeConnection} edges={edges} nodes={nodes} />
+
         {nodes.map((node) => (
           <DesignNodeCard
             key={node.id}
             node={node}
+            onConnectionStart={handleConnectionStart}
             onContextMenu={handleNodeContextMenu}
             onPointerDown={handleNodePointerDown}
           />
@@ -318,10 +400,16 @@ export function DesignCanvas() {
   );
 }
 
+function getCanvasPoint(clientX: number, clientY: number, bounds: DOMRect, zoom: number) {
+  return {
+    x: (clientX - bounds.left) / zoom,
+    y: (clientY - bounds.top) / zoom
+  };
+}
+
 function getCanvasPosition(clientX: number, clientY: number, bounds: DOMRect, zoom: number) {
-  const x = (clientX - bounds.left) / zoom - nodeSize / 2;
-  const y = (clientY - bounds.top) / zoom - nodeSize / 2;
-  return clampPosition(x, y, bounds, zoom);
+  const point = getCanvasPoint(clientX, clientY, bounds, zoom);
+  return clampPosition(point.x - nodeSize / 2, point.y - nodeSize / 2, bounds, zoom);
 }
 
 function clampPosition(x: number, y: number, bounds: DOMRect, zoom: number) {
@@ -347,7 +435,15 @@ function createDuplicateNode(node: DesignNode, bounds: DOMRect | undefined, zoom
   };
 }
 
-function areNodeListsEqual(first: DesignNode[], second: DesignNode[]) {
+function getConnectionTargetNodeId(target: EventTarget) {
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+
+  return target.closest<HTMLElement>("[data-connect-node-id]")?.dataset.connectNodeId ?? null;
+}
+
+function areCanvasStatesEqual(first: CanvasState, second: CanvasState) {
   return JSON.stringify(first) === JSON.stringify(second);
 }
 

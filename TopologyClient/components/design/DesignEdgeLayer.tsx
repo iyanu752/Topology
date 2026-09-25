@@ -39,17 +39,26 @@ export function DesignEdgeLayer({ draftEdge, edgeResultsById, edges, nodes }: De
         const style = getEdgeStyle(edgeResult?.status ?? "Healthy");
 
         return (
-          <line
-            key={edge.id}
-            x1={from.x}
-            y1={from.y}
-            x2={to.x}
-            y2={to.y}
-            className={style.className}
-            strokeDasharray={style.dashArray}
-            strokeWidth={style.strokeWidth}
-            markerEnd={style.markerEnd}
-          />
+          <g key={edge.id}>
+            <line
+              x1={from.x}
+              y1={from.y}
+              x2={to.x}
+              y2={to.y}
+              className={style.trackClassName}
+              strokeWidth={style.trackWidth}
+            />
+            <line
+              x1={from.x}
+              y1={from.y}
+              x2={to.x}
+              y2={to.y}
+              className={style.className}
+              strokeDasharray={style.dashArray}
+              strokeWidth={style.strokeWidth}
+              markerEnd={style.markerEnd}
+            />
+          </g>
         );
       })}
 
@@ -78,7 +87,7 @@ function DraftEdge({ draftEdge, nodeById }: DraftEdgeProps) {
       y1={from.y}
       x2={draftEdge.toX}
       y2={draftEdge.toY}
-      className="stroke-emerald-200/70"
+      className="stroke-emerald-200/70 topology-edge-flow"
       strokeDasharray="6 5"
       strokeWidth="2"
     />
@@ -96,31 +105,39 @@ function getEdgeStyle(status: SimulationEdgeStatus) {
   switch (status) {
     case "Degraded":
       return {
-        className: "stroke-amber-300/80",
-        dashArray: "8 6",
+        className: "stroke-amber-300/85 topology-edge-flow",
+        dashArray: "10 7",
         markerEnd: "url(#edge-arrow-warning)",
-        strokeWidth: 2.5
+        strokeWidth: 2.5,
+        trackClassName: "stroke-amber-950/70",
+        trackWidth: 5
       };
     case "Saturated":
       return {
-        className: "stroke-rose-300/85",
-        dashArray: undefined,
+        className: "stroke-rose-300 topology-edge-flow-fast",
+        dashArray: "12 6",
         markerEnd: "url(#edge-arrow-danger)",
-        strokeWidth: 3
+        strokeWidth: 3,
+        trackClassName: "stroke-rose-950/80",
+        trackWidth: 6
       };
     case "Broken":
       return {
-        className: "stroke-rose-300/70",
+        className: "stroke-rose-300/75",
         dashArray: "3 8",
         markerEnd: "url(#edge-arrow-danger)",
-        strokeWidth: 2.5
+        strokeWidth: 2.5,
+        trackClassName: "stroke-rose-950/50",
+        trackWidth: 5
       };
     case "Healthy":
       return {
-        className: "stroke-emerald-300/80",
-        dashArray: undefined,
+        className: "stroke-emerald-300/85 topology-edge-flow",
+        dashArray: "9 7",
         markerEnd: "url(#edge-arrow)",
-        strokeWidth: 2
+        strokeWidth: 2,
+        trackClassName: "stroke-emerald-950/70",
+        trackWidth: 5
       };
   }
 }

@@ -14,6 +14,7 @@ public static class TrafficSimulationEvaluator
         var impact = new List<string>();
         var recommendations = new List<string>();
         var affectedNodeIds = new HashSet<string>();
+        var nodeResults = CreateDefaultNodeResults(design);
         var riskScore = 0;
         var trafficPerSecond = runSimulationDto.TrafficPerSecond ?? (isHighTrafficScenario ? 2000 : 100);
         var readPercentage = runSimulationDto.ReadPercentage ?? 70;
@@ -38,6 +39,7 @@ public static class TrafficSimulationEvaluator
         if (trafficPerSecond <= estimatedServiceCapacity)
         {
             findings.Add($"Estimated service capacity can handle {trafficPerSecond} requests per second.");
+            MarkNodes(nodeResults, services, SimulationNodeStatus.Online, "Service capacity is within the estimated limit.", GetLoadPercentage(trafficPerSecond, estimatedServiceCapacity));
         }
         else
         {
@@ -45,6 +47,7 @@ public static class TrafficSimulationEvaluator
             findings.Add($"Traffic of {trafficPerSecond} requests per second is above the estimated service capacity of {estimatedServiceCapacity}.");
             impact.Add("Users may see slower responses, timeouts, or failed requests.");
             recommendations.Add("Increase service replicas or scale compute resources.");
+            MarkNodes(nodeResults, services, SimulationNodeStatus.Saturated, "Service tier is above estimated capacity.", 99);
         }
 
         if (!apiGateways.Any())
@@ -63,12 +66,18 @@ public static class TrafficSimulationEvaluator
             var totalRateLimitPerMinute = apiGateways.Sum(gateway => NodePropertyReader.GetInt(gateway, "rateLimitPerMinute", 0));
             var hasRateLimit = totalRateLimitPerMinute > 0;
             var hasAuth = apiGateways.Any(gateway => NodePropertyReader.GetBool(gateway, "authEnabled", false));
+            var gatewayStatus = SimulationNodeStatus.Online;
+            var gatewayMessage = "API gateway capacity is within the estimated limit.";
+            var gatewayLoad = GetLoadPercentage(trafficPerSecond, estimatedGatewayCapacity);
 
             if (trafficPerSecond > estimatedGatewayCapacity)
             {
                 riskScore += 2;
                 findings.Add($"Traffic of {trafficPerSecond} requests per second is above the estimated API gateway capacity of {estimatedGatewayCapacity}.");
                 recommendations.Add("Scale API gateway replicas before high traffic events.");
+                gatewayStatus = SimulationNodeStatus.Saturated;
+                gatewayMessage = "API gateway is above estimated capacity.";
+                gatewayLoad = 99;
             }
             else
             {
@@ -80,6 +89,11 @@ public static class TrafficSimulationEvaluator
                 riskScore += 1;
                 findings.Add("No API gateway rate limit is configured for the high traffic event.");
                 recommendations.Add("Configure API gateway rate limits to protect downstream services.");
+                if (gatewayStatus == SimulationNodeStatus.Online)
+                {
+                    gatewayStatus = SimulationNodeStatus.Degraded;
+                    gatewayMessage = "API gateway is missing rate limits for high traffic.";
+                }
             }
             else if (hasRateLimit)
             {
@@ -91,7 +105,14 @@ public static class TrafficSimulationEvaluator
                 riskScore += 1;
                 findings.Add("API gateway auth is not enabled.");
                 recommendations.Add("Enable auth at the API gateway for public API traffic.");
+                if (gatewayStatus == SimulationNodeStatus.Online)
+                {
+                    gatewayStatus = SimulationNodeStatus.Degraded;
+                    gatewayMessage = "API gateway is missing auth for public traffic.";
+                }
             }
+
+            MarkNodes(nodeResults, apiGateways, gatewayStatus, gatewayMessage, gatewayLoad);
         }
 
         if (trafficPerSecond > 500 && !loadBalancers.Any())
@@ -104,6 +125,7 @@ public static class TrafficSimulationEvaluator
         {
             findings.Add("A load balancer is present to distribute traffic.");
             AddAffectedNodes(affectedNodeIds, loadBalancers);
+            MarkNodes(nodeResults, loadBalancers, SimulationNodeStatus.Online, "Load balancer is available to distribute traffic.", Math.Min(80, trafficPerSecond / 50));
         }
 
         if (readPercentage >= 70 && !caches.Any())
@@ -111,11 +133,13 @@ public static class TrafficSimulationEvaluator
             riskScore += isHighTrafficScenario ? 2 : 1;
             findings.Add("The workload is read-heavy, but no cache node was found.");
             recommendations.Add("Add a cache for frequently-read data to reduce database pressure.");
+            MarkNodes(nodeResults, databases, SimulationNodeStatus.Degraded, "Read-heavy traffic may increase database pressure.", 82);
         }
         else if (caches.Any())
         {
             findings.Add("A cache is present for read-heavy traffic.");
             AddAffectedNodes(affectedNodeIds, caches);
+            MarkNodes(nodeResults, caches, SimulationNodeStatus.Online, "Cache is available for read-heavy traffic.", Math.Min(75, readPercentage));
         }
 
         if (writePercentage >= 40)
@@ -136,6 +160,7 @@ public static class TrafficSimulationEvaluator
                     riskScore += 2;
                     findings.Add("Write traffic depends on a database tier with no extra replicas configured.");
                     recommendations.Add("Add database replicas or partition writes when traffic grows.");
+                    MarkNodes(nodeResults, databases, SimulationNodeStatus.Degraded, "Write traffic is pressuring a database tier with limited replicas.", 84);
                 }
             }
 
@@ -149,6 +174,7 @@ public static class TrafficSimulationEvaluator
             {
                 findings.Add("A queue is present to absorb asynchronous work.");
                 AddAffectedNodes(affectedNodeIds, queues);
+                MarkNodes(nodeResults, queues, SimulationNodeStatus.Online, "Queue is available to absorb asynchronous work.", Math.Min(90, writePercentage + trafficPerSecond / 100));
             }
         }
 
@@ -168,8 +194,125 @@ public static class TrafficSimulationEvaluator
             Findings = findings.Distinct().ToList(),
             Impact = impact.Distinct().ToList(),
             Recommendations = recommendations.Distinct().ToList(),
-            AffectedNodeIds = affectedNodeIds.ToList()
+            AffectedNodeIds = affectedNodeIds.ToList(),
+            NodeResults = nodeResults.Values.ToList(),
+            EdgeResults = CreateEdgeResults(design, nodeResults, trafficPerSecond)
         };
+    }
+
+    private static Dictionary<string, SimulationNodeResult> CreateDefaultNodeResults(Design design)
+    {
+        return design.Nodes.ToDictionary(
+            node => node.Id,
+            node => new SimulationNodeResult
+            {
+                NodeId = node.Id,
+                Status = SimulationNodeStatus.Online,
+                Message = "Node is operating normally.",
+                LoadPercentage = 20,
+                Metrics = new Dictionary<string, object>
+                {
+                    ["componentType"] = node.Type.ToString(),
+                    ["label"] = node.Label
+                }
+            });
+    }
+
+    private static void MarkNodes(
+        Dictionary<string, SimulationNodeResult> nodeResults,
+        IEnumerable<Node> nodes,
+        SimulationNodeStatus status,
+        string message,
+        int loadPercentage)
+    {
+        foreach (var node in nodes)
+        {
+            if (!nodeResults.TryGetValue(node.Id, out var result))
+            {
+                continue;
+            }
+
+            if (GetNodeStatusWeight(status) >= GetNodeStatusWeight(result.Status))
+            {
+                result.Status = status;
+                result.Message = message;
+                result.LoadPercentage = Math.Clamp(loadPercentage, 0, 100);
+            }
+        }
+    }
+
+    private static List<SimulationEdgeResult> CreateEdgeResults(
+        Design design,
+        IReadOnlyDictionary<string, SimulationNodeResult> nodeResults,
+        int trafficPerSecond)
+    {
+        return design.Edges.Select(edge =>
+        {
+            nodeResults.TryGetValue(edge.SourceNodeId, out var sourceResult);
+            nodeResults.TryGetValue(edge.TargetNodeId, out var targetResult);
+            var worstStatus = GetWorstNodeStatus(sourceResult?.Status, targetResult?.Status);
+
+            return new SimulationEdgeResult
+            {
+                EdgeId = edge.Id,
+                SourceNodeId = edge.SourceNodeId,
+                TargetNodeId = edge.TargetNodeId,
+                Status = MapNodeStatusToEdgeStatus(worstStatus),
+                Message = GetEdgeMessage(worstStatus),
+                TrafficPerSecond = trafficPerSecond
+            };
+        }).ToList();
+    }
+
+    private static SimulationNodeStatus GetWorstNodeStatus(SimulationNodeStatus? first, SimulationNodeStatus? second)
+    {
+        var firstStatus = first ?? SimulationNodeStatus.Online;
+        var secondStatus = second ?? SimulationNodeStatus.Online;
+        return GetNodeStatusWeight(firstStatus) >= GetNodeStatusWeight(secondStatus) ? firstStatus : secondStatus;
+    }
+
+    private static int GetNodeStatusWeight(SimulationNodeStatus status)
+    {
+        return status switch
+        {
+            SimulationNodeStatus.Online => 0,
+            SimulationNodeStatus.Degraded => 1,
+            SimulationNodeStatus.Saturated => 2,
+            SimulationNodeStatus.Offline => 3,
+            _ => 0
+        };
+    }
+
+    private static SimulationEdgeStatus MapNodeStatusToEdgeStatus(SimulationNodeStatus status)
+    {
+        return status switch
+        {
+            SimulationNodeStatus.Degraded => SimulationEdgeStatus.Degraded,
+            SimulationNodeStatus.Saturated => SimulationEdgeStatus.Saturated,
+            SimulationNodeStatus.Offline => SimulationEdgeStatus.Broken,
+            _ => SimulationEdgeStatus.Healthy
+        };
+    }
+
+    private static string GetEdgeMessage(SimulationNodeStatus status)
+    {
+        return status switch
+        {
+            SimulationNodeStatus.Degraded => "Traffic crosses a degraded component.",
+            SimulationNodeStatus.Saturated => "Traffic crosses a saturated component.",
+            SimulationNodeStatus.Offline => "Traffic path is broken by an offline component.",
+            _ => "Traffic path is healthy."
+        };
+    }
+
+    private static int GetLoadPercentage(int trafficPerSecond, int capacity)
+    {
+        if (capacity <= 0)
+        {
+            return 100;
+        }
+
+        return Math.Clamp((int)Math.Round(trafficPerSecond / (double)capacity * 100), 0, 100);
     }
 
     private static void AddAffectedNodes(HashSet<string> affectedNodeIds, IEnumerable<Node> nodes)

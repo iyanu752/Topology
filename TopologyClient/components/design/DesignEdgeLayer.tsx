@@ -1,12 +1,14 @@
+﻿import type { SimulationEdgeResult, SimulationEdgeStatus } from "@/types";
 import { designNodeSize, type DesignEdge, type DesignNode } from "./DesignNodeCard";
 
 type DesignEdgeLayerProps = {
   draftEdge: { fromNodeId: string; toX: number; toY: number } | null;
+  edgeResultsById: Map<string, SimulationEdgeResult>;
   edges: DesignEdge[];
   nodes: DesignNode[];
 };
 
-export function DesignEdgeLayer({ draftEdge, edges, nodes }: DesignEdgeLayerProps) {
+export function DesignEdgeLayer({ draftEdge, edgeResultsById, edges, nodes }: DesignEdgeLayerProps) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
 
   return (
@@ -14,6 +16,12 @@ export function DesignEdgeLayer({ draftEdge, edges, nodes }: DesignEdgeLayerProp
       <defs>
         <marker id="edge-arrow" markerHeight="8" markerWidth="8" orient="auto" refX="7" refY="4">
           <path d="M 0 0 L 8 4 L 0 8 z" className="fill-emerald-300" />
+        </marker>
+        <marker id="edge-arrow-warning" markerHeight="8" markerWidth="8" orient="auto" refX="7" refY="4">
+          <path d="M 0 0 L 8 4 L 0 8 z" className="fill-amber-300" />
+        </marker>
+        <marker id="edge-arrow-danger" markerHeight="8" markerWidth="8" orient="auto" refX="7" refY="4">
+          <path d="M 0 0 L 8 4 L 0 8 z" className="fill-rose-300" />
         </marker>
       </defs>
 
@@ -27,6 +35,8 @@ export function DesignEdgeLayer({ draftEdge, edges, nodes }: DesignEdgeLayerProp
 
         const from = getNodeCenter(fromNode);
         const to = getNodeCenter(toNode);
+        const edgeResult = edgeResultsById.get(edge.id);
+        const style = getEdgeStyle(edgeResult?.status ?? "Healthy");
 
         return (
           <line
@@ -35,9 +45,10 @@ export function DesignEdgeLayer({ draftEdge, edges, nodes }: DesignEdgeLayerProp
             y1={from.y}
             x2={to.x}
             y2={to.y}
-            className="stroke-emerald-300/80"
-            strokeWidth="2"
-            markerEnd="url(#edge-arrow)"
+            className={style.className}
+            strokeDasharray={style.dashArray}
+            strokeWidth={style.strokeWidth}
+            markerEnd={style.markerEnd}
           />
         );
       })}
@@ -79,4 +90,37 @@ function getNodeCenter(node: DesignNode) {
     x: node.x + designNodeSize.width / 2,
     y: node.y + designNodeSize.height / 2
   };
+}
+
+function getEdgeStyle(status: SimulationEdgeStatus) {
+  switch (status) {
+    case "Degraded":
+      return {
+        className: "stroke-amber-300/80",
+        dashArray: "8 6",
+        markerEnd: "url(#edge-arrow-warning)",
+        strokeWidth: 2.5
+      };
+    case "Saturated":
+      return {
+        className: "stroke-rose-300/85",
+        dashArray: undefined,
+        markerEnd: "url(#edge-arrow-danger)",
+        strokeWidth: 3
+      };
+    case "Broken":
+      return {
+        className: "stroke-rose-300/70",
+        dashArray: "3 8",
+        markerEnd: "url(#edge-arrow-danger)",
+        strokeWidth: 2.5
+      };
+    case "Healthy":
+      return {
+        className: "stroke-emerald-300/80",
+        dashArray: undefined,
+        markerEnd: "url(#edge-arrow)",
+        strokeWidth: 2
+      };
+  }
 }

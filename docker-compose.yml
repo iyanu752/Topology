@@ -37,6 +37,7 @@ services:
     volumes:
       - ./TopologyClient:/app
       - /app/node_modules
+      - /app/.next
     environment:
       WATCHPACK_POLLING: "true"
     depends_on:

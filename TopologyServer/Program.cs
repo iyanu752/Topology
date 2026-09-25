@@ -5,6 +5,8 @@ using TopologyServer;
 
 var builder = WebApplication.CreateBuilder(args);
 
+const string FrontendCorsPolicy = "FrontendCorsPolicy";
+
 var auth0Section = builder.Configuration.GetSection("Auth0");
 var auth0Domain = auth0Section["Domain"];
 var auth0Audience = auth0Section["Audience"];
@@ -18,6 +20,17 @@ builder.Services.AddSingleton<IMongoClient>(_ =>
     new MongoClient(builder.Configuration.GetConnectionString("MongoDB")));
 builder.Services.AddScoped(sp =>
     sp.GetRequiredService<IMongoClient>().GetDatabase("Topology"));
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(FrontendCorsPolicy, policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3000", "http://127.0.0.1:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
 builder.Services.AddAuth0ApiAuthentication(auth0Section);
 builder.Services.AddAuthorization();
@@ -50,12 +63,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseCors(FrontendCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
 
 public partial class Program { }
-
-
-

@@ -1,3 +1,4 @@
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace TopologyServer;
@@ -40,10 +41,18 @@ public class ConnectionRuleService : IConnectionRuleService
 
         foreach (var rule in defaults)
         {
-            await _rules.ReplaceOneAsync(
-                existing => existing.SourceType == rule.SourceType && existing.TargetType == rule.TargetType,
-                rule,
-                new ReplaceOptions { IsUpsert = true });
+            var filter = Builders<ConnectionRule>.Filter.Where(existing =>
+                existing.SourceType == rule.SourceType && existing.TargetType == rule.TargetType);
+
+            var update = Builders<ConnectionRule>.Update
+                .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
+                .Set(existing => existing.SourceType, rule.SourceType)
+                .Set(existing => existing.TargetType, rule.TargetType)
+                .Set(existing => existing.IsAllowed, rule.IsAllowed)
+                .Set(existing => existing.Severity, rule.Severity)
+                .Set(existing => existing.Message, rule.Message);
+
+            await _rules.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });
         }
 
         _logger.LogInformation("Seeded {Count} connection rules", defaults.Count);

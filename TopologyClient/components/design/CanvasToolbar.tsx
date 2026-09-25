@@ -18,7 +18,7 @@ export function CanvasToolbar({
   zoomPercentage
 }: CanvasToolbarProps) {
   return (
-    <div className="fixed bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 md:bottom-5">
+    <div data-canvas-interactive="true" className="fixed bottom-24 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 md:bottom-5">
       <div className="flex h-10 items-center overflow-hidden rounded-md border border-zinc-800 bg-zinc-950/95 text-sm shadow-2xl shadow-black/30 backdrop-blur">
         <button
           type="button"
@@ -69,3 +69,4 @@ export function CanvasToolbar({
     </div>
   );
 }
+

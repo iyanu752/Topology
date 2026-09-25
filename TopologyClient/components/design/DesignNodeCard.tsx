@@ -25,6 +25,7 @@ type DesignNodeCardProps = {
 export function DesignNodeCard({ node, onConnectionStart, onContextMenu, onPointerDown }: DesignNodeCardProps) {
   return (
     <div
+      data-canvas-interactive="true"
       role="button"
       tabIndex={0}
       onContextMenu={(event) => onContextMenu(event, node)}
@@ -45,3 +46,4 @@ export function DesignNodeCard({ node, onConnectionStart, onContextMenu, onPoint
     </div>
   );
 }
+

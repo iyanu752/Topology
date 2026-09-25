@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   AccessType,
   ComponentCategory,
   ComponentType,
@@ -123,6 +123,27 @@ export type RunSimulationDto = {
   failedNodeIds: string[];
 };
 
+export type SimulationNodeStatus = "Online" | "Degraded" | "Saturated" | "Offline";
+
+export type SimulationEdgeStatus = "Healthy" | "Degraded" | "Saturated" | "Broken";
+
+export type SimulationNodeResult = {
+  nodeId: string;
+  status: SimulationNodeStatus;
+  message: string;
+  loadPercentage?: number | null;
+  metrics: Record<string, unknown>;
+};
+
+export type SimulationEdgeResult = {
+  edgeId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  status: SimulationEdgeStatus;
+  message: string;
+  trafficPerSecond?: number | null;
+};
+
 export type SimulationResult = {
   scenario: SimulationScenario;
   riskLevel: SimulationRiskLevel;
@@ -131,4 +152,7 @@ export type SimulationResult = {
   impact: string[];
   recommendations: string[];
   affectedNodeIds: string[];
+  nodeResults: SimulationNodeResult[];
+  edgeResults: SimulationEdgeResult[];
 };
+

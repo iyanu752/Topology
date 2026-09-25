@@ -1,6 +1,7 @@
 ﻿import type { PointerEvent } from "react";
 import { ComponentLibraryIcon } from "@/components/component-library/ComponentLibraryItem";
 import type { ComponentLibraryItem } from "@/components/component-library/componentLibraryItems";
+import type { SimulationNodeResult } from "@/types";
 
 export const designNodeSize = {
   width: 244,
@@ -26,6 +27,7 @@ export type DesignEdge = {
 type DesignNodeCardProps = {
   isSelected: boolean;
   node: DesignNode;
+  simulationResult?: SimulationNodeResult;
   onConnectionStart: (event: PointerEvent<HTMLButtonElement>, node: DesignNode) => void;
   onContextMenu: (event: React.MouseEvent<HTMLDivElement>, node: DesignNode) => void;
   onPointerDown: (event: PointerEvent<HTMLDivElement>, node: DesignNode) => void;
@@ -45,15 +47,17 @@ type StatusStyle = {
   metricClassName: string;
 };
 
-export function DesignNodeCard({ isSelected, node, onConnectionStart, onContextMenu, onPointerDown }: DesignNodeCardProps) {
+export function DesignNodeCard({ isSelected, node, simulationResult, onConnectionStart, onContextMenu, onPointerDown }: DesignNodeCardProps) {
   const profile = getNodeCardProfile(node.component);
-  const statusStyle = getStatusStyle(node.status);
-  const bars = getStatusBars(profile.bars, node.status);
+  const status = simulationResult?.status ?? node.status;
+  const statusStyle = getStatusStyle(status);
+  const bars = getStatusBars(profile.bars, status, simulationResult?.loadPercentage);
+  const caption = simulationResult?.message ?? profile.caption;
 
   return (
     <div
       data-canvas-interactive="true"
-      data-node-status={node.status}
+      data-node-status={status}
       role="button"
       tabIndex={0}
       onContextMenu={(event) => onContextMenu(event, node)}
@@ -70,12 +74,12 @@ export function DesignNodeCard({ isSelected, node, onConnectionStart, onContextM
             </span>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold uppercase text-zinc-100">{node.component.name}</div>
-              <div className="mt-0.5 truncate text-[11px] uppercase text-zinc-500">{profile.caption}</div>
+              <div className="mt-0.5 truncate text-[11px] uppercase text-zinc-500">{caption}</div>
             </div>
           </div>
 
           <span className={`shrink-0 rounded border px-2 py-1 text-[11px] font-semibold uppercase ${statusStyle.badgeClassName}`}>
-            {node.status}
+            {status}
           </span>
         </div>
 
@@ -89,8 +93,8 @@ export function DesignNodeCard({ isSelected, node, onConnectionStart, onContextM
           </div>
 
           <div className="flex flex-col justify-end border-l border-zinc-800 pl-4">
-            <span className="text-[11px] font-semibold uppercase text-zinc-500">{getMetricLabel(profile.metricLabel, node.status)}</span>
-            <span className={`mt-2 text-sm font-semibold ${statusStyle.metricClassName}`}>{getMetricValue(profile.metricValue, node.status)}</span>
+            <span className="text-[11px] font-semibold uppercase text-zinc-500">{getMetricLabel(profile.metricLabel, status, simulationResult)}</span>
+            <span className={`mt-2 text-sm font-semibold ${statusStyle.metricClassName}`}>{getMetricValue(profile.metricValue, status, simulationResult)}</span>
           </div>
         </div>
       </div>
@@ -139,7 +143,12 @@ function getStatusStyle(status: NodeStatus): StatusStyle {
   }
 }
 
-function getStatusBars(bars: number[], status: NodeStatus) {
+function getStatusBars(bars: number[], status: NodeStatus, loadPercentage?: number | null) {
+  if (typeof loadPercentage === "number") {
+    const load = Math.min(Math.max(loadPercentage, 0), 100);
+    return [load, Math.max(6, Math.round(load * 0.82)), Math.max(6, Math.round(load * 0.64))];
+  }
+
   switch (status) {
     case "Online":
       return bars;
@@ -152,11 +161,19 @@ function getStatusBars(bars: number[], status: NodeStatus) {
   }
 }
 
-function getMetricLabel(label: string, status: NodeStatus) {
+function getMetricLabel(label: string, status: NodeStatus, simulationResult?: SimulationNodeResult) {
+  if (simulationResult?.loadPercentage !== undefined && simulationResult.loadPercentage !== null) {
+    return "Load";
+  }
+
   return status === "Offline" ? "Status" : label;
 }
 
-function getMetricValue(value: string, status: NodeStatus) {
+function getMetricValue(value: string, status: NodeStatus, simulationResult?: SimulationNodeResult) {
+  if (simulationResult?.loadPercentage !== undefined && simulationResult.loadPercentage !== null) {
+    return `${simulationResult.loadPercentage}%`;
+  }
+
   switch (status) {
     case "Online":
       return value;
@@ -195,5 +212,3 @@ function getNodeCardProfile(component: ComponentLibraryItem): NodeCardProfile {
       return { caption: "Component", metricLabel: "Load", metricValue: "0%", bars: [40, 40, 40] };
   }
 }
-
-

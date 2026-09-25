@@ -35,7 +35,7 @@ public class ConnectionRuleService : IConnectionRuleService
             .FirstOrDefaultAsync();
     }
 
-    public async Task SeedDefaultRulesAsync()
+    public async Task SeedDefaultRulesAsync(bool overwriteExisting = true)
     {
         var defaults = _seedHelper.GetDefaultRules();
 
@@ -44,17 +44,25 @@ public class ConnectionRuleService : IConnectionRuleService
             var filter = Builders<ConnectionRule>.Filter.Where(existing =>
                 existing.SourceType == rule.SourceType && existing.TargetType == rule.TargetType);
 
-            var update = Builders<ConnectionRule>.Update
-                .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
-                .Set(existing => existing.SourceType, rule.SourceType)
-                .Set(existing => existing.TargetType, rule.TargetType)
-                .Set(existing => existing.IsAllowed, rule.IsAllowed)
-                .Set(existing => existing.Severity, rule.Severity)
-                .Set(existing => existing.Message, rule.Message);
+            var update = overwriteExisting
+                ? Builders<ConnectionRule>.Update
+                    .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
+                    .Set(existing => existing.SourceType, rule.SourceType)
+                    .Set(existing => existing.TargetType, rule.TargetType)
+                    .Set(existing => existing.IsAllowed, rule.IsAllowed)
+                    .Set(existing => existing.Severity, rule.Severity)
+                    .Set(existing => existing.Message, rule.Message)
+                : Builders<ConnectionRule>.Update
+                    .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
+                    .SetOnInsert(existing => existing.SourceType, rule.SourceType)
+                    .SetOnInsert(existing => existing.TargetType, rule.TargetType)
+                    .SetOnInsert(existing => existing.IsAllowed, rule.IsAllowed)
+                    .SetOnInsert(existing => existing.Severity, rule.Severity)
+                    .SetOnInsert(existing => existing.Message, rule.Message);
 
             await _rules.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });
         }
 
-        _logger.LogInformation("Seeded {Count} connection rules", defaults.Count);
+        _logger.LogInformation("Seeded {Count} connection rules. Overwrite existing: {OverwriteExisting}", defaults.Count, overwriteExisting);
     }
 }

@@ -15,10 +15,16 @@ type NodeContextMenuProps = {
 export function NodeContextMenu({ node, onClose, onCopy, onCut, onDelete, onDuplicate, x, y }: NodeContextMenuProps) {
   return (
     <div
+      data-canvas-interactive="true"
       className="fixed z-40 w-44 rounded-md border border-zinc-800 bg-zinc-950 p-1 text-sm text-zinc-200 shadow-2xl shadow-black/40"
       style={{ left: x, top: y }}
       role="menu"
-      onContextMenu={(event) => event.preventDefault()}
+      onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
     >
       <ContextMenuButton onClick={() => { onCopy(node); onClose(); }}>Copy</ContextMenuButton>
       <ContextMenuButton onClick={() => { onCut(node); onClose(); }}>Cut</ContextMenuButton>

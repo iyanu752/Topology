@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ComponentLibraryItem } from "@/components/component-library/componentLibraryItems";
 import { dragPayloadType } from "@/components/component-library/ComponentLibraryItem";
 import { WelcomePanel } from "@/components/home/WelcomePanel";
@@ -78,9 +78,11 @@ const zoomStep = 0.1;
 const minZoom = 0.5;
 const maxZoom = 2;
 const emptyCanvasState: CanvasState = { nodes: [], edges: [] };
+const browserStorageKey = "topology.canvas.design.v1";
 
 export function DesignCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [history, setHistory] = useState<CanvasHistory>({ past: [], present: emptyCanvasState, future: [] });
   const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
@@ -92,6 +94,7 @@ export function DesignCanvas() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+  const [hasSavedBrowserDesign, setHasSavedBrowserDesign] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<CanvasPan>({ x: 0, y: 0 });
 
@@ -99,6 +102,10 @@ export function DesignCanvas() {
   const selectedNode = selectedNodeId ? nodes.find((node) => node.id === selectedNodeId) ?? null : null;
   const simulationNodeResultsById = new Map(simulationResult?.nodeResults.map((result) => [result.nodeId, result]) ?? []);
   const simulationEdgeResultsById = new Map(simulationResult?.edgeResults.map((result) => [result.edgeId, result]) ?? []);
+
+  useEffect(() => {
+    setHasSavedBrowserDesign(hasBrowserSavedDesign());
+  }, []);
 
   function commitCanvasState(nextState: CanvasState) {
     setHistory((currentHistory) => ({
@@ -476,6 +483,75 @@ export function DesignCanvas() {
     showToast(`${label} painted on canvas at ${config.trafficPerSecond.toLocaleString()} req/s.`);
   }
 
+  function saveDesignToBrowser() {
+    try {
+      window.localStorage.setItem(browserStorageKey, JSON.stringify(createPersistedDesign(history.present, pan, zoom)));
+      setHasSavedBrowserDesign(true);
+      showToast("Design saved in browser storage.");
+    } catch {
+      showToast("Could not save this design in browser storage.");
+    }
+  }
+
+  function loadDesignFromBrowser() {
+    try {
+      const savedDesign = window.localStorage.getItem(browserStorageKey);
+      if (!savedDesign) {
+        showToast("No saved browser design found.");
+        setHasSavedBrowserDesign(false);
+        return;
+      }
+
+      applyPersistedDesign(parsePersistedDesign(JSON.parse(savedDesign)));
+      showToast("Design loaded from browser storage.");
+    } catch {
+      showToast("Could not load the saved browser design.");
+    }
+  }
+
+  function exportDesignToFile() {
+    const payload = JSON.stringify(createPersistedDesign(history.present, pan, zoom), null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+
+    anchor.href = url;
+    anchor.download = `topology-design-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    showToast("Design exported as JSON.");
+  }
+
+  function openImportFilePicker() {
+    fileInputRef.current?.click();
+  }
+
+  async function importDesignFromFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const importedDesign = parsePersistedDesign(JSON.parse(await file.text()));
+      applyPersistedDesign(importedDesign);
+      showToast("Design imported from JSON.");
+    } catch {
+      showToast("Could not import that design file.");
+    }
+  }
+
+  function applyPersistedDesign(persistedDesign: PersistedCanvasDesign) {
+    closeContextMenus();
+    setSimulationResult(null);
+    setSelectedNodeId(null);
+    setPan(persistedDesign.pan);
+    setZoom(persistedDesign.zoom);
+    setHistory({ past: [], present: persistedDesign.canvasState, future: [] });
+  }
+
   function zoomOut() {
     setZoom((currentZoom) => Math.max(minZoom, roundZoom(currentZoom - zoomStep)));
   }
@@ -538,9 +614,14 @@ export function DesignCanvas() {
       <SimulationPanel onRun={runSimulation} />
 
       <CanvasToolbar
+        canLoadSavedDesign={hasSavedBrowserDesign}
         canRedo={history.future.length > 0}
         canUndo={history.past.length > 0}
+        onExportFile={exportDesignToFile}
+        onImportFile={openImportFilePicker}
+        onLoadBrowser={loadDesignFromBrowser}
         onRedo={redo}
+        onSaveBrowser={saveDesignToBrowser}
         onUndo={undo}
         onZoomIn={zoomIn}
         onZoomOut={zoomOut}
@@ -570,6 +651,14 @@ export function DesignCanvas() {
         />
       ) : null}
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        className="hidden"
+        onChange={importDesignFromFile}
+      />
+
       {toast ? (
         <div className="fixed right-4 top-4 z-50 max-w-sm rounded-md border border-red-500/40 bg-zinc-950 px-4 py-3 text-sm text-red-100 shadow-2xl shadow-black/40" role="status">
           {toast.message}
@@ -577,6 +666,97 @@ export function DesignCanvas() {
       ) : null}
     </section>
   );
+}
+
+type PersistedCanvasDesign = {
+  version: 1;
+  savedAt: string;
+  canvasState: CanvasState;
+  pan: CanvasPan;
+  zoom: number;
+};
+
+function createPersistedDesign(canvasState: CanvasState, pan: CanvasPan, zoom: number): PersistedCanvasDesign {
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    canvasState,
+    pan,
+    zoom
+  };
+}
+
+function parsePersistedDesign(value: unknown): PersistedCanvasDesign {
+  if (!isRecord(value) || value.version !== 1) {
+    throw new Error("Unsupported design file version.");
+  }
+
+  const canvasState = value.canvasState;
+  const pan = value.pan;
+  const zoom = value.zoom;
+
+  if (!isCanvasState(canvasState) || !isPan(pan) || typeof zoom !== "number") {
+    throw new Error("Invalid design file.");
+  }
+
+  return {
+    version: 1,
+    savedAt: typeof value.savedAt === "string" ? value.savedAt : new Date().toISOString(),
+    canvasState,
+    pan,
+    zoom: Math.min(Math.max(zoom, minZoom), maxZoom)
+  };
+}
+
+function hasBrowserSavedDesign() {
+  try {
+    return Boolean(window.localStorage.getItem(browserStorageKey));
+  } catch {
+    return false;
+  }
+}
+
+function isCanvasState(value: unknown): value is CanvasState {
+  if (!isRecord(value) || !Array.isArray(value.nodes) || !Array.isArray(value.edges)) {
+    return false;
+  }
+
+  return value.nodes.every(isDesignNode) && value.edges.every(isDesignEdge);
+}
+
+function isDesignNode(value: unknown): value is DesignNode {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    isRecord(value.component) &&
+    typeof value.component.id === "string" &&
+    typeof value.component.name === "string" &&
+    typeof value.component.description === "string" &&
+    isNodeStatus(value.status) &&
+    typeof value.x === "number" &&
+    typeof value.y === "number"
+  );
+}
+
+function isDesignEdge(value: unknown): value is DesignEdge {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.fromNodeId === "string" &&
+    typeof value.toNodeId === "string"
+  );
+}
+
+function isNodeStatus(value: unknown): value is NodeStatus {
+  return value === "Online" || value === "Degraded" || value === "Saturated" || value === "Offline";
+}
+
+function isPan(value: unknown): value is CanvasPan {
+  return isRecord(value) && typeof value.x === "number" && typeof value.y === "number";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function createLocalSimulationResult(canvasState: CanvasState, config: SimulationPanelConfig): SimulationResult {
@@ -830,6 +1010,10 @@ function areCanvasStatesEqual(first: CanvasState, second: CanvasState) {
 function roundZoom(value: number) {
   return Math.round(value * 10) / 10;
 }
+
+
+
+
 
 
 

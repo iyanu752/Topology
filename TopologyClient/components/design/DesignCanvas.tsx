@@ -1,17 +1,18 @@
-"use client";
+﻿"use client";
 
 import { useRef, useState } from "react";
 import type { ComponentLibraryItem } from "@/components/component-library/componentLibraryItems";
 import { dragPayloadType } from "@/components/component-library/ComponentLibraryItem";
 import { WelcomePanel } from "@/components/home/WelcomePanel";
 import { connectionRuleService } from "@/services";
-import type { ComponentType } from "@/types";
 import { ApiError } from "@/services/apiClient";
 import { CanvasContextMenu } from "./CanvasContextMenu";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { DesignEdgeLayer } from "./DesignEdgeLayer";
-import { DesignNodeCard, designNodeSize, type DesignEdge, type DesignNode } from "./DesignNodeCard";
+import { DesignNodeCard, designNodeSize, type DesignEdge, type DesignNode, type NodeStatus } from "./DesignNodeCard";
 import { NodeContextMenu } from "./NodeContextMenu";
+import { NodePropertiesPanel } from "./NodePropertiesPanel";
+import { getComponentTypeForLibraryItem } from "./canvasDesignMapper";
 
 type CanvasState = {
   nodes: DesignNode[];
@@ -76,17 +77,6 @@ const minZoom = 0.5;
 const maxZoom = 2;
 const emptyCanvasState: CanvasState = { nodes: [], edges: [] };
 
-const componentTypeByLibraryId: Record<string, ComponentType | undefined> = {
-  client: "Client",
-  "api-gateway": "ApiGateway",
-  "load-balancer": "LoadBalancer",
-  service: "Service",
-  database: "Database",
-  cache: "Cache",
-  queue: "Queue",
-  "external-api": "ExternalApi"
-};
-
 export function DesignCanvas() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -98,10 +88,12 @@ export function DesignCanvas() {
   const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState | null>(null);
   const [clipboardNode, setClipboardNode] = useState<DesignNode | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<CanvasPan>({ x: 0, y: 0 });
 
   const { nodes, edges } = history.present;
+  const selectedNode = selectedNodeId ? nodes.find((node) => node.id === selectedNodeId) ?? null : null;
 
   function commitCanvasState(nextState: CanvasState) {
     setHistory((currentHistory) => ({
@@ -144,11 +136,13 @@ export function DesignCanvas() {
     const newNode: DesignNode = {
       id: `${component.id}-${crypto.randomUUID()}`,
       component,
+      status: "Online",
       x: position.x,
       y: position.y
     };
 
     commitCanvasState({ nodes: [...nodes, newNode], edges });
+    setSelectedNodeId(newNode.id);
   }
 
   function handleCanvasPointerDown(event: React.PointerEvent<HTMLDivElement>) {
@@ -158,6 +152,7 @@ export function DesignCanvas() {
 
     event.currentTarget.setPointerCapture(event.pointerId);
     closeContextMenus();
+    setSelectedNodeId(null);
     setActivePan({
       pointerId: event.pointerId,
       startX: event.clientX,
@@ -179,6 +174,7 @@ export function DesignCanvas() {
 
     event.currentTarget.setPointerCapture(event.pointerId);
     closeContextMenus();
+    setSelectedNodeId(node.id);
     setActiveDrag({
       nodeId: node.id,
       offsetX: event.clientX - bounds.left - pan.x - node.x * zoom,
@@ -289,8 +285,8 @@ export function DesignCanvas() {
   }
 
   async function validateConnection(sourceNode: DesignNode, targetNode: DesignNode) {
-    const sourceType = componentTypeByLibraryId[sourceNode.component.id];
-    const targetType = componentTypeByLibraryId[targetNode.component.id];
+    const sourceType = getComponentTypeForLibraryItem(sourceNode.component.id);
+    const targetType = getComponentTypeForLibraryItem(targetNode.component.id);
 
     if (!sourceType || !targetType) {
       return {
@@ -348,6 +344,7 @@ export function DesignCanvas() {
     event.preventDefault();
     event.stopPropagation();
     setCanvasContextMenu(null);
+    setSelectedNodeId(node.id);
     setNodeContextMenu({ node, x: event.clientX, y: event.clientY });
   }
 
@@ -415,6 +412,10 @@ export function DesignCanvas() {
   }
 
   function removeNode(node: DesignNode) {
+    if (selectedNodeId === node.id) {
+      setSelectedNodeId(null);
+    }
+
     commitCanvasState({
       nodes: nodes.filter((currentNode) => currentNode.id !== node.id),
       edges: edges.filter((edge) => edge.fromNodeId !== node.id && edge.toNodeId !== node.id)
@@ -424,6 +425,7 @@ export function DesignCanvas() {
   function duplicateNode(node: DesignNode) {
     const duplicate = createDuplicateNode(node);
     commitCanvasState({ nodes: [...nodes, duplicate], edges });
+    setSelectedNodeId(duplicate.id);
   }
 
   function pasteCopiedNode(position?: { x: number; y: number }) {
@@ -435,12 +437,25 @@ export function DesignCanvas() {
       ? {
           ...clipboardNode,
           id: `${clipboardNode.component.id}-${crypto.randomUUID()}`,
+          status: clipboardNode.status ?? "Online",
           x: position.x,
           y: position.y
         }
       : createDuplicateNode(clipboardNode);
 
     commitCanvasState({ nodes: [...nodes, pastedNode], edges });
+    setSelectedNodeId(pastedNode.id);
+  }
+
+  function updateSelectedNodeStatus(status: NodeStatus) {
+    if (!selectedNode) {
+      return;
+    }
+
+    commitCanvasState({
+      nodes: nodes.map((node) => (node.id === selectedNode.id ? { ...node, status } : node)),
+      edges
+    });
   }
 
   function zoomOut() {
@@ -484,6 +499,7 @@ export function DesignCanvas() {
         {nodes.map((node) => (
           <DesignNodeCard
             key={node.id}
+            isSelected={node.id === selectedNodeId}
             node={node}
             onConnectionStart={handleConnectionStart}
             onContextMenu={handleNodeContextMenu}
@@ -491,6 +507,14 @@ export function DesignCanvas() {
           />
         ))}
       </div>
+
+      {selectedNode ? (
+        <NodePropertiesPanel
+          node={selectedNode}
+          onClose={() => setSelectedNodeId(null)}
+          onStatusChange={updateSelectedNodeStatus}
+        />
+      ) : null}
 
       <CanvasToolbar
         canRedo={history.future.length > 0}
@@ -588,5 +612,9 @@ function areCanvasStatesEqual(first: CanvasState, second: CanvasState) {
 function roundZoom(value: number) {
   return Math.round(value * 10) / 10;
 }
+
+
+
+
 
 

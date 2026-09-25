@@ -286,7 +286,7 @@ public sealed class FakeComponentLibraryService : IComponentLibraryService
         return Task.FromResult(Components.FirstOrDefault(component => component.Type == type));
     }
 
-    public Task SeedDefaultComponentsAsync()
+    public Task SeedDefaultComponentsAsync(bool overwriteExisting = true)
     {
         SeedCalled = true;
         return Task.CompletedTask;
@@ -372,7 +372,7 @@ public sealed class FakeConnectionRuleService : IConnectionRuleService
         return Task.FromResult(Rules.FirstOrDefault(rule => rule.SourceType == sourceType && rule.TargetType == targetType));
     }
 
-    public Task SeedDefaultRulesAsync()
+    public Task SeedDefaultRulesAsync(bool overwriteExisting = true)
     {
         SeedCalled = true;
         return Task.CompletedTask;

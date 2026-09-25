@@ -1,4 +1,11 @@
 services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+
   server:
     image: topology-server
     build:
@@ -8,9 +15,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      Auth0__Domain: ${AUTH0_DOMAIN:-}
-      Auth0__Audience: ${AUTH0_AUDIENCE:-}
-      ConnectionStrings__MongoDB: ${MONGODB_CONNECTION_STRING:-}
+      Auth0__Domain: ${AUTH0_DOMAIN:-local-dev.auth0.com}
+      Auth0__Audience: ${AUTH0_AUDIENCE:-topology-local-api}
+      ConnectionStrings__MongoDB: ${MONGODB_DOCKER_CONNECTION_STRING:-mongodb://mongo:27017}
+    depends_on:
+      - mongo
 
   frontend:
     image: topology-client
@@ -20,6 +29,8 @@ services:
         NODE_VERSION: 24.5.0
     ports:
       - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:5023}
     depends_on:
       - server
 
@@ -39,6 +50,10 @@ services:
       - /app/node_modules
       - /app/.next
     environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:5023}
       WATCHPACK_POLLING: "true"
     depends_on:
       - server
+
+volumes:
+  mongo-data:

@@ -62,11 +62,28 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+if (!app.Environment.IsEnvironment("Testing"))
+{
+    await SeedDefaultDataAsync(app);
+}
+
 app.UseHttpsRedirection();
 app.UseCors(FrontendCorsPolicy);
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.Run();
+
+static async Task SeedDefaultDataAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var overwriteExisting = app.Environment.IsDevelopment();
+
+    var componentLibraryService = scope.ServiceProvider.GetRequiredService<IComponentLibraryService>();
+    await componentLibraryService.SeedDefaultComponentsAsync(overwriteExisting);
+
+    var connectionRuleService = scope.ServiceProvider.GetRequiredService<IConnectionRuleService>();
+    await connectionRuleService.SeedDefaultRulesAsync(overwriteExisting);
+}
 
 public partial class Program { }

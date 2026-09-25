@@ -33,7 +33,7 @@ public class ComponentLibraryService : IComponentLibraryService
         return component;
     }
 
-    public async Task SeedDefaultComponentsAsync()
+    public async Task SeedDefaultComponentsAsync(bool overwriteExisting = true)
     {
         var defaults = _helper.GetDefaultComponents();
 
@@ -41,17 +41,25 @@ public class ComponentLibraryService : IComponentLibraryService
         {
             var filter = Builders<ComponentDefinition>.Filter.Where(existing => existing.Type == component.Type);
 
-            var update = Builders<ComponentDefinition>.Update
-                .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
-                .Set(existing => existing.Type, component.Type)
-                .Set(existing => existing.Label, component.Label)
-                .Set(existing => existing.Category, component.Category)
-                .Set(existing => existing.Description, component.Description)
-                .Set(existing => existing.Properties, component.Properties);
+            var update = overwriteExisting
+                ? Builders<ComponentDefinition>.Update
+                    .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
+                    .Set(existing => existing.Type, component.Type)
+                    .Set(existing => existing.Label, component.Label)
+                    .Set(existing => existing.Category, component.Category)
+                    .Set(existing => existing.Description, component.Description)
+                    .Set(existing => existing.Properties, component.Properties)
+                : Builders<ComponentDefinition>.Update
+                    .SetOnInsert(existing => existing.Id, ObjectId.GenerateNewId().ToString())
+                    .SetOnInsert(existing => existing.Type, component.Type)
+                    .SetOnInsert(existing => existing.Label, component.Label)
+                    .SetOnInsert(existing => existing.Category, component.Category)
+                    .SetOnInsert(existing => existing.Description, component.Description)
+                    .SetOnInsert(existing => existing.Properties, component.Properties);
 
             await _components.UpdateOneAsync(filter, update, new UpdateOptions { IsUpsert = true });
         }
 
-        _logger.LogInformation("Seeded {Count} component definitions", defaults.Count);
+        _logger.LogInformation("Seeded {Count} component definitions. Overwrite existing: {OverwriteExisting}", defaults.Count, overwriteExisting);
     }
 }

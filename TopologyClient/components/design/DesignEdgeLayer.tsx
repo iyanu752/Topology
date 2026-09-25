@@ -1,12 +1,10 @@
-import type { DesignEdge, DesignNode } from "./DesignNodeCard";
+import { designNodeSize, type DesignEdge, type DesignNode } from "./DesignNodeCard";
 
 type DesignEdgeLayerProps = {
   draftEdge: { fromNodeId: string; toX: number; toY: number } | null;
   edges: DesignEdge[];
   nodes: DesignNode[];
 };
-
-const nodeCenterOffset = 40;
 
 export function DesignEdgeLayer({ draftEdge, edges, nodes }: DesignEdgeLayerProps) {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
@@ -78,7 +76,7 @@ function DraftEdge({ draftEdge, nodeById }: DraftEdgeProps) {
 
 function getNodeCenter(node: DesignNode) {
   return {
-    x: node.x + nodeCenterOffset,
-    y: node.y + nodeCenterOffset
+    x: node.x + designNodeSize.width / 2,
+    y: node.y + designNodeSize.height / 2
   };
 }

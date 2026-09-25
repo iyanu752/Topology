@@ -10,7 +10,7 @@ import { ApiError } from "@/services/apiClient";
 import { CanvasContextMenu } from "./CanvasContextMenu";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { DesignEdgeLayer } from "./DesignEdgeLayer";
-import { DesignNodeCard, type DesignEdge, type DesignNode } from "./DesignNodeCard";
+import { DesignNodeCard, designNodeSize, type DesignEdge, type DesignNode } from "./DesignNodeCard";
 import { NodeContextMenu } from "./NodeContextMenu";
 
 type CanvasState = {
@@ -68,7 +68,8 @@ type CanvasPan = {
   y: number;
 };
 
-const nodeSize = 80;
+const nodeWidth = designNodeSize.width;
+const nodeHeight = designNodeSize.height;
 const canvasWorldSize = 4000;
 const zoomStep = 0.1;
 const minZoom = 0.5;
@@ -197,8 +198,8 @@ export function DesignCanvas() {
 
     setActiveConnection({
       fromNodeId: node.id,
-      toX: node.x + nodeSize / 2,
-      toY: node.y + nodeSize / 2
+      toX: node.x + nodeWidth / 2,
+      toY: node.y + nodeHeight / 2
     });
   }
 
@@ -542,15 +543,16 @@ function getCanvasPoint(clientX: number, clientY: number, bounds: DOMRect, zoom:
 
 function getCanvasPosition(clientX: number, clientY: number, bounds: DOMRect, zoom: number, pan: CanvasPan) {
   const point = getCanvasPoint(clientX, clientY, bounds, zoom, pan);
-  return clampPosition(point.x - nodeSize / 2, point.y - nodeSize / 2);
+  return clampPosition(point.x - nodeWidth / 2, point.y - nodeHeight / 2);
 }
 
 function clampPosition(x: number, y: number) {
-  const maxPosition = canvasWorldSize - nodeSize;
+  const maxX = canvasWorldSize - nodeWidth;
+  const maxY = canvasWorldSize - nodeHeight;
 
   return {
-    x: Math.min(Math.max(0, x), maxPosition),
-    y: Math.min(Math.max(0, y), maxPosition)
+    x: Math.min(Math.max(0, x), maxX),
+    y: Math.min(Math.max(0, y), maxY)
   };
 }
 
@@ -586,3 +588,5 @@ function areCanvasStatesEqual(first: CanvasState, second: CanvasState) {
 function roundZoom(value: number) {
   return Math.round(value * 10) / 10;
 }
+
+

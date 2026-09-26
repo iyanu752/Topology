@@ -24,11 +24,13 @@ public class ComponentDefinitionSeedHelper
             Type = ComponentType.Client,
             Label = "Client",
             Category = ComponentCategory.Network,
-            Description = "A browser, mobile app, desktop app, or CLI.",
+            Description = "A browser, mobile app, desktop app, or CLI sending requests into the system.",
             Properties =
             [
-                Select("clientType", "Client Type", ["Browser", "Mobile", "Desktop", "CLI"], "Browser", true),
-                Text("platform", "Platform", "Web", false)
+                Text("displayName", "Display Name", "Client", false),
+                Text("region", "Region", "us-east-1", false),
+                Number("expectedUsers", "Expected Users", "1000", 1, 100000000, false),
+                Number("requestsPerSecond", "Requests Per Second", "100", 0, 10000000, false)
             ]
         };
     }
@@ -43,11 +45,12 @@ public class ComponentDefinitionSeedHelper
             Description = "Routes API traffic and centralizes cross cutting concerns like auth, rate limiting, retries, and request timeouts.",
             Properties =
             [
-                Number("replicas", "Replicas", "2", 1, 20, true),
-                Number("rateLimitPerMinute", "Rate Limit Per Minute", "6000", 1, 1000000, false),
-                Checkbox("authEnabled", "Auth Enabled", "true", false),
-                Number("requestTimeoutMs", "Request Timeout MS", "3000", 100, 120000, false),
-                Checkbox("retriesEnabled", "Retries Enabled", "true", false)
+                Text("displayName", "Display Name", "API Gateway", false),
+                Text("region", "Region", "us-east-1", false),
+                Number("rateLimitPerSecond", "Rate Limit Per Second", "1000", 0, 10000000, false),
+                Checkbox("authRequired", "Auth Required", "true", false),
+                Number("timeoutMs", "Timeout MS", "30000", 100, 120000, false),
+                Checkbox("cachingEnabled", "Caching Enabled", "false", false)
             ]
         };
     }
@@ -62,9 +65,11 @@ public class ComponentDefinitionSeedHelper
             Description = "Distributes incoming traffic across services or servers.",
             Properties =
             [
-                Select("algorithm", "Algorithm", ["RoundRobin", "LeastConnections", "IpHash"], "RoundRobin", true),
-                Number("replicas", "Replicas", "2", 1, 20, true),
-                Text("healthCheckPath", "Health Check Path", "/health", false)
+                Text("displayName", "Display Name", "Load Balancer", false),
+                Text("region", "Region", "us-east-1", false),
+                Select("routingStrategy", "Routing Strategy", ["round-robin", "least-connections", "ip-hash"], "round-robin", false),
+                Checkbox("healthChecksEnabled", "Health Checks Enabled", "true", false),
+                Number("targetCount", "Target Count", "1", 1, 1000, false)
             ]
         };
     }
@@ -79,10 +84,13 @@ public class ComponentDefinitionSeedHelper
             Description = "A deployable application service or API.",
             Properties =
             [
+                Text("displayName", "Display Name", "Service", false),
+                Text("region", "Region", "us-east-1", false),
                 Number("replicas", "Replicas", "1", 1, 100, true),
                 Number("cpuCores", "CPU Cores", "1", 0.25, 128, false),
-                Number("memoryMb", "Memory MB", "512", 128, 262144, false),
-                Select("runtime", "Runtime", [".NET", "Node.js", "Python", "Go", "Java"], ".NET", false)
+                Number("memoryGb", "Memory GB", "1", 0.125, 1024, false),
+                Number("maxRequestsPerSecond", "Max Requests Per Second", "100", 1, 10000000, false),
+                Checkbox("autoscalingEnabled", "Autoscaling Enabled", "false", false)
             ]
         };
     }
@@ -97,12 +105,15 @@ public class ComponentDefinitionSeedHelper
             Description = "Stores persistent application data.",
             Properties =
             [
-                Select("databaseType", "Database Type", ["SQL", "NoSQL"], "SQL", true),
-                Select("engine", "Engine", ["Postgres", "MySQL", "MongoDB", "DynamoDB"], "Postgres", true),
-                Number("replicas", "Replicas", "1", 1, 20, true),
+                Text("displayName", "Display Name", "Database", false),
+                Text("region", "Region", "us-east-1", false),
+                Select("databaseType", "Database Type", ["Postgres", "MySQL", "MongoDB", "DynamoDB"], "Postgres", true),
                 Number("storageGb", "Storage GB", "20", 1, 10000, true),
-                Checkbox("backupEnabled", "Backup Enabled", "true", false),
-                Checkbox("failoverEnabled", "Failover Enabled", "false", false)
+                Number("replicas", "Replicas", "1", 1, 20, true),
+                Number("readReplicas", "Read Replicas", "0", 0, 100, false),
+                Checkbox("backupEnabled", "Backup Enabled", "false", false),
+                Checkbox("failoverEnabled", "Failover Enabled", "false", false),
+                Number("maxConnections", "Max Connections", "100", 1, 1000000, false)
             ]
         };
     }
@@ -117,10 +128,12 @@ public class ComponentDefinitionSeedHelper
             Description = "A fast in-memory store for cached data, sessions, or temporary state.",
             Properties =
             [
-                Select("engine", "Engine", ["Redis", "Memcached"], "Redis", true),
-                Number("memoryMb", "Memory MB", "512", 128, 262144, true),
-                Number("replicas", "Replicas", "1", 1, 20, false),
-                Number("ttlSeconds", "TTL Seconds", "300", 1, 2592000, false)
+                Text("displayName", "Display Name", "Cache", false),
+                Text("region", "Region", "us-east-1", false),
+                Select("cacheType", "Cache Type", ["Redis", "Memcached"], "Redis", false),
+                Number("memoryGb", "Memory GB", "1", 0.125, 1024, false),
+                Number("ttlSeconds", "TTL Seconds", "300", 1, 2592000, false),
+                Select("evictionPolicy", "Eviction Policy", ["lru", "lfu", "ttl", "none"], "lru", false)
             ]
         };
     }
@@ -135,10 +148,11 @@ public class ComponentDefinitionSeedHelper
             Description = "A message queue, topic, or stream for asynchronous workloads.",
             Properties =
             [
-                Select("queueType", "Queue Type", ["Queue", "Topic", "Stream"], "Queue", true),
-                Number("partitions", "Partitions", "1", 1, 1000, false),
+                Text("displayName", "Display Name", "Queue", false),
+                Text("region", "Region", "us-east-1", false),
+                Number("throughputPerSecond", "Throughput Per Second", "500", 1, 10000000, false),
                 Number("retentionHours", "Retention Hours", "24", 1, 8760, false),
-                Number("maxMessageSizeKb", "Max Message Size KB", "256", 1, 10240, false)
+                Checkbox("deadLetterQueueEnabled", "Dead Letter Queue Enabled", "false", false)
             ]
         };
     }
@@ -153,9 +167,11 @@ public class ComponentDefinitionSeedHelper
             Description = "An external service, third party API, webhook provider, or vendor integration.",
             Properties =
             [
-                Text("provider", "Provider", "External Provider", false),
-                Select("protocol", "Protocol", ["HTTP", "gRPC", "Webhook"], "HTTP", true),
-                Number("rateLimitPerMinute", "Rate Limit Per Minute", "60", 1, 1000000, false)
+                Text("displayName", "Display Name", "External API", false),
+                Text("region", "Region", "us-east-1", false),
+                Number("averageLatencyMs", "Average Latency MS", "250", 1, 120000, false),
+                Number("rateLimitPerMinute", "Rate Limit Per Minute", "60", 1, 1000000, false),
+                Number("reliabilityPercentage", "Reliability Percentage", "99", 0, 100, false)
             ]
         };
     }

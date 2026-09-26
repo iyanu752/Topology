@@ -1,7 +1,8 @@
-﻿import type { PointerEvent } from "react";
+import type { PointerEvent } from "react";
 import { ComponentLibraryIcon } from "@/components/component-library/ComponentLibraryItem";
 import type { ComponentLibraryItem } from "@/components/component-library/componentLibraryItems";
 import type { SimulationNodeResult } from "@/types";
+import type { NodeConfiguration } from "./nodeConfiguration";
 
 export const designNodeSize = {
   width: 244,
@@ -13,6 +14,7 @@ export type NodeStatus = "Online" | "Degraded" | "Saturated" | "Offline";
 export type DesignNode = {
   id: string;
   component: ComponentLibraryItem;
+  configuration: NodeConfiguration;
   status: NodeStatus;
   x: number;
   y: number;
@@ -40,6 +42,12 @@ type NodeCardProfile = {
   bars: number[];
 };
 
+type NodeConfigurationSummary = {
+  caption?: string;
+  metricLabel?: string;
+  metricValue?: string;
+};
+
 type StatusStyle = {
   badgeClassName: string;
   barClassName: string;
@@ -49,10 +57,14 @@ type StatusStyle = {
 
 export function DesignNodeCard({ isSelected, node, simulationResult, onConnectionStart, onContextMenu, onPointerDown }: DesignNodeCardProps) {
   const profile = getNodeCardProfile(node.component);
+  const configurationSummary = getNodeConfigurationSummary(node);
   const status = simulationResult?.status ?? node.status;
   const statusStyle = getStatusStyle(status);
   const bars = getStatusBars(profile.bars, status, simulationResult?.loadPercentage);
-  const caption = simulationResult?.message ?? profile.caption;
+  const title = getNodeTitle(node);
+  const caption = simulationResult?.message ?? configurationSummary.caption ?? profile.caption;
+  const metricLabel = configurationSummary.metricLabel ?? profile.metricLabel;
+  const metricValue = configurationSummary.metricValue ?? profile.metricValue;
 
   return (
     <div
@@ -64,7 +76,7 @@ export function DesignNodeCard({ isSelected, node, simulationResult, onConnectio
       onPointerDown={(event) => onPointerDown(event, node)}
       className={`absolute touch-none cursor-grab select-none overflow-hidden rounded-lg border bg-zinc-950 shadow-2xl shadow-black/40 transition active:cursor-grabbing ${statusStyle.borderClassName} ${isSelected ? "ring-2 ring-emerald-300/80" : ""}`}
       style={{ left: node.x, top: node.y, width: designNodeSize.width, height: designNodeSize.height }}
-      aria-label={`Move ${node.component.name}`}
+      aria-label={`Move ${title}`}
     >
       <div className="flex h-full flex-col p-4">
         <div className="flex items-start justify-between gap-3">
@@ -73,7 +85,7 @@ export function DesignNodeCard({ isSelected, node, simulationResult, onConnectio
               <ComponentLibraryIcon item={node.component} size="sidebar" />
             </span>
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold uppercase text-zinc-100">{node.component.name}</div>
+              <div className="truncate text-sm font-semibold uppercase text-zinc-100">{title}</div>
               <div className="mt-0.5 truncate text-[11px] uppercase text-zinc-500">{caption}</div>
             </div>
           </div>
@@ -92,16 +104,16 @@ export function DesignNodeCard({ isSelected, node, simulationResult, onConnectio
             ))}
           </div>
 
-          <div className="flex flex-col justify-end border-l border-zinc-800 pl-4">
-            <span className="text-[11px] font-semibold uppercase text-zinc-500">{getMetricLabel(profile.metricLabel, status, simulationResult)}</span>
-            <span className={`mt-2 text-sm font-semibold ${statusStyle.metricClassName}`}>{getMetricValue(profile.metricValue, status, simulationResult)}</span>
+          <div className="flex min-w-0 flex-col justify-end border-l border-zinc-800 pl-4">
+            <span className="truncate text-[11px] font-semibold uppercase text-zinc-500">{getMetricLabel(metricLabel, status, simulationResult)}</span>
+            <span className={`mt-2 truncate text-sm font-semibold ${statusStyle.metricClassName}`}>{getMetricValue(metricValue, status, simulationResult)}</span>
           </div>
         </div>
       </div>
 
       <button
         type="button"
-        aria-label={`Connect from ${node.component.name}`}
+        aria-label={`Connect from ${title}`}
         data-connect-node-id={node.id}
         onPointerDown={(event) => onConnectionStart(event, node)}
         className="absolute -right-2 top-1/2 h-5 w-5 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-zinc-950 bg-emerald-300 shadow-lg shadow-black/30 transition hover:scale-110 hover:bg-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-200"
@@ -186,6 +198,125 @@ function getMetricValue(value: string, status: NodeStatus, simulationResult?: Si
   }
 }
 
+function getNodeTitle(node: DesignNode) {
+  const displayName = getStringConfig(node.configuration, "displayName");
+  return displayName || node.component.name;
+}
+
+function getNodeConfigurationSummary(node: DesignNode): NodeConfigurationSummary {
+  const { component, configuration } = node;
+
+  switch (component.id) {
+    case "client": {
+      const expectedUsers = getNumberConfig(configuration, "expectedUsers");
+      const requestsPerSecond = getNumberConfig(configuration, "requestsPerSecond");
+
+      return {
+        caption: expectedUsers ? `${formatNumber(expectedUsers)} users` : undefined,
+        metricLabel: "RPS",
+        metricValue: formatRate(requestsPerSecond)
+      };
+    }
+    case "api-gateway": {
+      const authRequired = getBooleanConfig(configuration, "authRequired");
+      const rateLimit = getNumberConfig(configuration, "rateLimitPerSecond");
+
+      return {
+        caption: authRequired === false ? "Auth off" : "Auth on",
+        metricLabel: "Limit",
+        metricValue: formatRate(rateLimit)
+      };
+    }
+    case "load-balancer": {
+      const strategy = getStringConfig(configuration, "routingStrategy");
+      const targetCount = getNumberConfig(configuration, "targetCount");
+
+      return {
+        caption: strategy ? formatLabel(strategy) : undefined,
+        metricLabel: "Targets",
+        metricValue: targetCount ? formatNumber(targetCount) : undefined
+      };
+    }
+    case "service": {
+      const replicas = getNumberConfig(configuration, "replicas");
+      const cpuCores = getNumberConfig(configuration, "cpuCores");
+      const memoryGb = getNumberConfig(configuration, "memoryGb");
+      const maxRequestsPerSecond = getNumberConfig(configuration, "maxRequestsPerSecond");
+
+      return {
+        caption: `${formatCount(replicas, "inst")} / ${formatCount(cpuCores, "CPU")} / ${formatSize(memoryGb, "GB")}`,
+        metricLabel: "RPS",
+        metricValue: formatRate(maxRequestsPerSecond)
+      };
+    }
+    case "database": {
+      const databaseType = getStringConfig(configuration, "databaseType");
+      const storageGb = getNumberConfig(configuration, "storageGb");
+      const replicas = getNumberConfig(configuration, "replicas");
+      const readReplicas = getNumberConfig(configuration, "readReplicas") ?? 0;
+
+      return {
+        caption: `${databaseType || "Database"} / ${formatSize(storageGb, "GB")}`,
+        metricLabel: "Replicas",
+        metricValue: formatNumber((replicas ?? 1) + readReplicas)
+      };
+    }
+    case "cache": {
+      const cacheType = getStringConfig(configuration, "cacheType");
+      const memoryGb = getNumberConfig(configuration, "memoryGb");
+      const ttlSeconds = getNumberConfig(configuration, "ttlSeconds");
+
+      return {
+        caption: `${cacheType || "Cache"} / ${formatSize(memoryGb, "GB")}`,
+        metricLabel: "TTL",
+        metricValue: ttlSeconds ? `${formatNumber(ttlSeconds)}s` : undefined
+      };
+    }
+    case "queue": {
+      const throughputPerSecond = getNumberConfig(configuration, "throughputPerSecond");
+      const deadLetterQueueEnabled = getBooleanConfig(configuration, "deadLetterQueueEnabled");
+
+      return {
+        caption: deadLetterQueueEnabled ? "DLQ enabled" : "No DLQ",
+        metricLabel: "RPS",
+        metricValue: formatRate(throughputPerSecond)
+      };
+    }
+    case "cdn": {
+      const edgeLocations = getNumberConfig(configuration, "edgeLocations");
+      const cacheTtlSeconds = getNumberConfig(configuration, "cacheTtlSeconds");
+
+      return {
+        caption: edgeLocations ? `${formatNumber(edgeLocations)} edge locations` : undefined,
+        metricLabel: "TTL",
+        metricValue: cacheTtlSeconds ? `${formatNumber(cacheTtlSeconds)}s` : undefined
+      };
+    }
+    case "object-storage": {
+      const storageGb = getNumberConfig(configuration, "storageGb");
+      const versioningEnabled = getBooleanConfig(configuration, "versioningEnabled");
+
+      return {
+        caption: versioningEnabled ? "Versioned files" : "File store",
+        metricLabel: "Storage",
+        metricValue: formatSize(storageGb, "GB")
+      };
+    }
+    case "external-api": {
+      const averageLatencyMs = getNumberConfig(configuration, "averageLatencyMs");
+      const rateLimitPerMinute = getNumberConfig(configuration, "rateLimitPerMinute");
+
+      return {
+        caption: averageLatencyMs ? `${formatNumber(averageLatencyMs)}ms avg` : undefined,
+        metricLabel: "Limit",
+        metricValue: rateLimitPerMinute ? `${formatNumber(rateLimitPerMinute)}/m` : undefined
+      };
+    }
+    default:
+      return {};
+  }
+}
+
 function getNodeCardProfile(component: ComponentLibraryItem): NodeCardProfile {
   switch (component.id) {
     case "client":
@@ -211,4 +342,39 @@ function getNodeCardProfile(component: ComponentLibraryItem): NodeCardProfile {
     default:
       return { caption: "Component", metricLabel: "Load", metricValue: "0%", bars: [40, 40, 40] };
   }
+}
+
+function getStringConfig(configuration: NodeConfiguration, key: string) {
+  const value = configuration[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function getNumberConfig(configuration: NodeConfiguration, key: string) {
+  const value = configuration[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getBooleanConfig(configuration: NodeConfiguration, key: string) {
+  const value = configuration[key];
+  return typeof value === "boolean" ? value : null;
+}
+
+function formatRate(value: number | null | undefined) {
+  return typeof value === "number" ? `${formatNumber(value)}/s` : undefined;
+}
+
+function formatSize(value: number | null | undefined, unit: string) {
+  return typeof value === "number" ? `${formatNumber(value)} ${unit}` : "-";
+}
+
+function formatCount(value: number | null | undefined, unit: string) {
+  return typeof value === "number" ? `${formatNumber(value)} ${unit}` : `- ${unit}`;
+}
+
+function formatNumber(value: number) {
+  return value.toLocaleString("en-US");
+}
+
+function formatLabel(value: string) {
+  return value.replace(/-/g, " ");
 }

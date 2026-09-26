@@ -80,12 +80,14 @@ public class DatabaseFailureSimulationHandler : ISimulationScenarioHandler
         foreach (var databaseNode in failedDatabaseNodes)
         {
             var replicaCount = NodePropertyReader.GetInt(databaseNode, "replicas", 1);
+            var readReplicaCount = NodePropertyReader.GetInt(databaseNode, "readReplicas", 0);
+            var totalReplicaCount = replicaCount + readReplicaCount;
             var backupEnabled = NodePropertyReader.GetBool(databaseNode, "backupEnabled", false);
             var failoverEnabled = NodePropertyReader.GetBool(databaseNode, "failoverEnabled", false);
 
             MarkNode(nodeResults, databaseNode, SimulationNodeStatus.Offline, "Database node failed during the simulation.", 0);
 
-            if (replicaCount <= 1)
+            if (totalReplicaCount <= 1)
             {
                 riskScore += 2;
                 findings.Add($"{databaseNode.Label} has no additional replicas configured.");
@@ -94,7 +96,7 @@ public class DatabaseFailureSimulationHandler : ISimulationScenarioHandler
             else
             {
                 riskScore -= 2;
-                findings.Add($"{databaseNode.Label} has {replicaCount} replicas configured.");
+                findings.Add($"{databaseNode.Label} has {totalReplicaCount} total database replica(s) configured.");
             }
 
             if (!backupEnabled)
@@ -125,15 +127,24 @@ public class DatabaseFailureSimulationHandler : ISimulationScenarioHandler
         var failedDatabaseNodeIds = failedDatabaseNodes.Select(node => node.Id).ToHashSet();
         var affectedNodeIds = SimulationGraphHelper.GetConnectedNodeIds(design, failedDatabaseNodeIds);
         var dependentNodeIds = affectedNodeIds.Where(nodeId => !failedDatabaseNodeIds.Contains(nodeId)).ToHashSet();
+        var failedDatabasesCanFailOver = failedDatabaseNodes.All(databaseNode =>
+            NodePropertyReader.GetBool(databaseNode, "failoverEnabled", false) &&
+            NodePropertyReader.GetInt(databaseNode, "replicas", 1) + NodePropertyReader.GetInt(databaseNode, "readReplicas", 0) > 1);
 
         foreach (var dependentNodeId in dependentNodeIds)
         {
+            if (failedDatabasesCanFailOver)
+            {
+                MarkNode(nodeResults, dependentNodeId, SimulationNodeStatus.Online, "Node stays online because database failover is configured.", 35);
+                continue;
+            }
+
             MarkNode(nodeResults, dependentNodeId, SimulationNodeStatus.Degraded, "Node depends on a failed database path.", 75);
         }
 
         if (affectedNodeIds.Count > failedDatabaseNodes.Count)
         {
-            impact.Add("Services connected to the failed database may lose read or write access.");
+            impact.Add(failedDatabasesCanFailOver ? "Services connected to the failed database can use configured failover paths." : "Services connected to the failed database may lose read or write access.");
         }
 
         if (!impact.Any())

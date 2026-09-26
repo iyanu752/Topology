@@ -37,6 +37,7 @@ public class DesignService : IDesignService
     {
         var user = await _authService.GetOrCreateUserAsync(principal);
         await _roomAccessService.EnsureRoomMemberAsync(roomId, user.Id!);
+        saveDesignDto.Nodes = NodePropertyNormalizer.NormalizeNodes(saveDesignDto.Nodes);
 
         var validation = await _designValidationService.ValidateDesignAsync(saveDesignDto);
         if (!validation.IsValid)

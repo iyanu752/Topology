@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   AccessType,
   ComponentCategory,
   ComponentType,
@@ -121,6 +121,11 @@ export type RunSimulationDto = {
   writePercentage?: number | null;
   hasCriticalWrites?: boolean | null;
   failedNodeIds: string[];
+  region?: string | null;
+  durationSeconds?: number | null;
+  cacheHitRatePercentage?: number | null;
+  payloadSizeKb?: number | null;
+  failedTargetCount?: number | null;
 };
 
 export type SimulationNodeStatus = "Online" | "Degraded" | "Saturated" | "Offline";

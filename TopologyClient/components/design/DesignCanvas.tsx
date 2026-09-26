@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import type { ComponentLibraryItem } from "@/components/component-library/componentLibraryItems";
@@ -15,6 +15,7 @@ import { NodeContextMenu } from "./NodeContextMenu";
 import { NodePropertiesPanel } from "./NodePropertiesPanel";
 import { SimulationPanel, type SimulationPanelConfig } from "./SimulationPanel";
 import { getComponentTypeForLibraryItem } from "./canvasDesignMapper";
+import { cloneNodeConfiguration, createDefaultNodeConfiguration, createNodeConfiguration } from "./nodeConfiguration";
 
 type CanvasState = {
   nodes: DesignNode[];
@@ -148,6 +149,7 @@ export function DesignCanvas() {
     const newNode: DesignNode = {
       id: `${component.id}-${crypto.randomUUID()}`,
       component,
+      configuration: createDefaultNodeConfiguration(component),
       status: "Online",
       x: position.x,
       y: position.y
@@ -452,6 +454,7 @@ export function DesignCanvas() {
       ? {
           ...clipboardNode,
           id: `${clipboardNode.component.id}-${crypto.randomUUID()}`,
+          configuration: cloneNodeConfiguration(clipboardNode.configuration),
           status: clipboardNode.status ?? "Online",
           x: position.x,
           y: position.y
@@ -680,7 +683,7 @@ function createPersistedDesign(canvasState: CanvasState, pan: CanvasPan, zoom: n
   return {
     version: 1,
     savedAt: new Date().toISOString(),
-    canvasState,
+    canvasState: normalizeCanvasState(canvasState),
     pan,
     zoom
   };
@@ -702,9 +705,23 @@ function parsePersistedDesign(value: unknown): PersistedCanvasDesign {
   return {
     version: 1,
     savedAt: typeof value.savedAt === "string" ? value.savedAt : new Date().toISOString(),
-    canvasState,
+    canvasState: normalizeCanvasState(canvasState),
     pan,
     zoom: Math.min(Math.max(zoom, minZoom), maxZoom)
+  };
+}
+
+function normalizeCanvasState(canvasState: CanvasState): CanvasState {
+  return {
+    nodes: canvasState.nodes.map(normalizeDesignNode),
+    edges: canvasState.edges
+  };
+}
+
+function normalizeDesignNode(node: DesignNode): DesignNode {
+  return {
+    ...node,
+    configuration: createNodeConfiguration(node.component, node.configuration)
   };
 }
 
@@ -984,6 +1001,7 @@ function createDuplicateNode(node: DesignNode) {
   return {
     ...node,
     id: `${node.component.id}-${crypto.randomUUID()}`,
+    configuration: cloneNodeConfiguration(node.configuration),
     x: position.x,
     y: position.y
   };

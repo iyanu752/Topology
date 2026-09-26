@@ -20,7 +20,7 @@ public static class TrafficSimulationEvaluator
         var readPercentage = runSimulationDto.ReadPercentage ?? 70;
         var writePercentage = runSimulationDto.WritePercentage ?? Math.Max(0, 100 - readPercentage);
         var serviceReplicaCount = services.Sum(service => NodePropertyReader.GetInt(service, "replicas", 1));
-        var estimatedServiceCapacity = Math.Max(1, serviceReplicaCount) * 500;
+        var estimatedServiceCapacity = services.Sum(GetServiceCapacity);
 
         AddAffectedNodes(affectedNodeIds, services);
 
@@ -62,10 +62,10 @@ public static class TrafficSimulationEvaluator
             findings.Add("An API gateway is present for public API traffic.");
 
             var gatewayReplicaCount = apiGateways.Sum(gateway => NodePropertyReader.GetInt(gateway, "replicas", 1));
-            var estimatedGatewayCapacity = Math.Max(1, gatewayReplicaCount) * 1000;
-            var totalRateLimitPerMinute = apiGateways.Sum(gateway => NodePropertyReader.GetInt(gateway, "rateLimitPerMinute", 0));
-            var hasRateLimit = totalRateLimitPerMinute > 0;
-            var hasAuth = apiGateways.Any(gateway => NodePropertyReader.GetBool(gateway, "authEnabled", false));
+            var configuredGatewayRateLimit = apiGateways.Sum(GetGatewayRateLimitPerSecond);
+            var estimatedGatewayCapacity = configuredGatewayRateLimit > 0 ? configuredGatewayRateLimit : Math.Max(1, gatewayReplicaCount) * 1000;
+            var hasRateLimit = configuredGatewayRateLimit > 0;
+            var hasAuth = apiGateways.Any(gateway => NodePropertyReader.GetBool(gateway, "authRequired", "authEnabled", false));
             var gatewayStatus = SimulationNodeStatus.Online;
             var gatewayMessage = "API gateway capacity is within the estimated limit.";
             var gatewayLoad = GetLoadPercentage(trafficPerSecond, estimatedGatewayCapacity);
@@ -97,7 +97,7 @@ public static class TrafficSimulationEvaluator
             }
             else if (hasRateLimit)
             {
-                findings.Add($"API gateway rate limiting is configured at {totalRateLimitPerMinute} request(s) per minute.");
+                findings.Add($"API gateway rate limiting is configured at {configuredGatewayRateLimit} request(s) per second.");
             }
 
             if (!hasAuth)
@@ -125,7 +125,18 @@ public static class TrafficSimulationEvaluator
         {
             findings.Add("A load balancer is present to distribute traffic.");
             AddAffectedNodes(affectedNodeIds, loadBalancers);
-            MarkNodes(nodeResults, loadBalancers, SimulationNodeStatus.Online, "Load balancer is available to distribute traffic.", Math.Min(80, trafficPerSecond / 50));
+            var totalTargets = loadBalancers.Sum(loadBalancer => NodePropertyReader.GetInt(loadBalancer, "targetCount", 1));
+            if (totalTargets <= 1 && trafficPerSecond > 500)
+            {
+                riskScore += 1;
+                findings.Add("Load balancer has only one target configured for elevated traffic.");
+                recommendations.Add("Increase load balancer targets so traffic can fail over to healthy services.");
+                MarkNodes(nodeResults, loadBalancers, SimulationNodeStatus.Degraded, "Load balancer has limited routing targets.", 70);
+            }
+            else
+            {
+                MarkNodes(nodeResults, loadBalancers, SimulationNodeStatus.Online, "Load balancer is available to distribute traffic.", Math.Min(80, trafficPerSecond / 50));
+            }
         }
 
         if (readPercentage >= 70 && !caches.Any())
@@ -154,8 +165,18 @@ public static class TrafficSimulationEvaluator
             else
             {
                 AddAffectedNodes(affectedNodeIds, databases);
-                var databaseReplicaCount = databases.Sum(database => NodePropertyReader.GetInt(database, "replicas", 1));
-                if (databaseReplicaCount <= 1 && trafficPerSecond > 500)
+                var databaseReplicaCount = databases.Sum(database => NodePropertyReader.GetInt(database, "replicas", 1) + NodePropertyReader.GetInt(database, "readReplicas", 0));
+                var anyDatabaseFailover = databases.Any(database => NodePropertyReader.GetBool(database, "failoverEnabled", false));
+                var maxConnections = databases.Sum(database => NodePropertyReader.GetInt(database, "maxConnections", 100));
+                if (trafficPerSecond > maxConnections * 10)
+                {
+                    riskScore += 1;
+                    findings.Add("Traffic may exceed the configured database connection capacity.");
+                    recommendations.Add("Increase database connection capacity or add pooling before traffic grows.");
+                    MarkNodes(nodeResults, databases, SimulationNodeStatus.Degraded, "Database connection capacity is under pressure.", 86);
+                }
+
+                if (databaseReplicaCount <= 1 && !anyDatabaseFailover && trafficPerSecond > 500)
                 {
                     riskScore += 2;
                     findings.Add("Write traffic depends on a database tier with no extra replicas configured.");
@@ -174,7 +195,19 @@ public static class TrafficSimulationEvaluator
             {
                 findings.Add("A queue is present to absorb asynchronous work.");
                 AddAffectedNodes(affectedNodeIds, queues);
-                MarkNodes(nodeResults, queues, SimulationNodeStatus.Online, "Queue is available to absorb asynchronous work.", Math.Min(90, writePercentage + trafficPerSecond / 100));
+                var totalQueueThroughput = queues.Sum(queue => NodePropertyReader.GetInt(queue, "throughputPerSecond", 500));
+                var estimatedWriteTraffic = (int)Math.Round(trafficPerSecond * (writePercentage / 100.0));
+                if (estimatedWriteTraffic > totalQueueThroughput)
+                {
+                    riskScore += 1;
+                    findings.Add($"Estimated write traffic of {estimatedWriteTraffic} request(s) per second is above queue throughput of {totalQueueThroughput}.");
+                    recommendations.Add("Increase queue throughput or partitions before write-heavy events.");
+                    MarkNodes(nodeResults, queues, SimulationNodeStatus.Saturated, "Queue throughput is saturated by write traffic.", 99);
+                }
+                else
+                {
+                    MarkNodes(nodeResults, queues, SimulationNodeStatus.Online, "Queue is available to absorb asynchronous work.", Math.Min(90, writePercentage + trafficPerSecond / 100));
+                }
             }
         }
 
@@ -200,6 +233,27 @@ public static class TrafficSimulationEvaluator
         };
     }
 
+    private static int GetServiceCapacity(Node service)
+    {
+        var replicas = NodePropertyReader.GetInt(service, "replicas", 1);
+        var maxRequestsPerSecond = NodePropertyReader.GetInt(service, "maxRequestsPerSecond", 100);
+        var cpuCores = NodePropertyReader.GetDouble(service, "cpuCores", 1);
+        var cpuCapacityBoost = Math.Max(1, (int)Math.Round(cpuCores));
+
+        return Math.Max(1, replicas) * Math.Max(1, maxRequestsPerSecond) * cpuCapacityBoost;
+    }
+
+    private static int GetGatewayRateLimitPerSecond(Node gateway)
+    {
+        var rateLimitPerSecond = NodePropertyReader.GetInt(gateway, "rateLimitPerSecond", 0);
+        if (rateLimitPerSecond > 0)
+        {
+            return rateLimitPerSecond;
+        }
+
+        var rateLimitPerMinute = NodePropertyReader.GetInt(gateway, "rateLimitPerMinute", 0);
+        return rateLimitPerMinute > 0 ? Math.Max(1, rateLimitPerMinute / 60) : 0;
+    }
     private static Dictionary<string, SimulationNodeResult> CreateDefaultNodeResults(Design design)
     {
         return design.Nodes.ToDictionary(

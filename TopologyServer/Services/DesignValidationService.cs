@@ -27,6 +27,7 @@ public class DesignValidationService : IDesignValidationService
         ValidateEdgesReferenceExistingNodes(design, nodesById, result);
         ValidateDuplicateAndSelfConnections(design, result);
         await ValidateComponentPropertiesAsync(design, result);
+        ValidateConfigurationReadiness(design, result);
         await ValidateConnectionRulesAsync(design, nodesById, result);
 
         _logger.LogInformation(
@@ -207,6 +208,131 @@ public class DesignValidationService : IDesignValidationService
         }
     }
 
+    private static void ValidateConfigurationReadiness(SaveDesignDto design, DesignValidationResult result)
+    {
+        var clients = design.Nodes.Where(node => node.Type == ComponentType.Client).ToList();
+        var apiGateways = design.Nodes.Where(node => node.Type == ComponentType.ApiGateway).ToList();
+        var loadBalancers = design.Nodes.Where(node => node.Type == ComponentType.LoadBalancer).ToList();
+        var services = design.Nodes.Where(node => node.Type == ComponentType.Service).ToList();
+        var databases = design.Nodes.Where(node => node.Type == ComponentType.Database).ToList();
+        var queues = design.Nodes.Where(node => node.Type == ComponentType.Queue).ToList();
+
+        if (clients.Any() && services.Any() && !apiGateways.Any())
+        {
+            result.Issues.Add(new DesignValidationIssue
+            {
+                Severity = ValidationSeverity.Warning,
+                Message = "The design has clients and services but no API gateway for public traffic."
+            });
+        }
+
+        if (services.Sum(service => NodePropertyReader.GetInt(service, "replicas", 1)) > 1 && !loadBalancers.Any())
+        {
+            result.Issues.Add(new DesignValidationIssue
+            {
+                Severity = ValidationSeverity.Warning,
+                Message = "Multiple service replicas are configured, but no load balancer is present to distribute traffic."
+            });
+        }
+
+        foreach (var gateway in apiGateways)
+        {
+            var rateLimitPerSecond = NodePropertyReader.GetInt(gateway, "rateLimitPerSecond", 0);
+            var rateLimitPerMinute = NodePropertyReader.GetInt(gateway, "rateLimitPerMinute", 0);
+            if (rateLimitPerSecond <= 0 && rateLimitPerMinute <= 0)
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "API gateway has no rate limit configured.",
+                    NodeId = gateway.Id,
+                    PropertyKey = "rateLimitPerSecond"
+                });
+            }
+
+            if (!NodePropertyReader.GetBool(gateway, "authRequired", "authEnabled", false))
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "API gateway auth is disabled or missing.",
+                    NodeId = gateway.Id,
+                    PropertyKey = "authRequired"
+                });
+            }
+        }
+
+        foreach (var service in services)
+        {
+            var replicas = NodePropertyReader.GetInt(service, "replicas", 1);
+            var maxRequestsPerSecond = NodePropertyReader.GetInt(service, "maxRequestsPerSecond", replicas * 100);
+            if (replicas <= 1)
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "Service has only one replica configured, creating a single point of failure.",
+                    NodeId = service.Id,
+                    PropertyKey = "replicas"
+                });
+            }
+
+            if (maxRequestsPerSecond <= 0)
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Error,
+                    Message = "Service maxRequestsPerSecond must be greater than zero.",
+                    NodeId = service.Id,
+                    PropertyKey = "maxRequestsPerSecond"
+                });
+            }
+        }
+
+        foreach (var database in databases)
+        {
+            var replicas = NodePropertyReader.GetInt(database, "replicas", 1);
+            var readReplicas = NodePropertyReader.GetInt(database, "readReplicas", 0);
+            var hasFailover = NodePropertyReader.GetBool(database, "failoverEnabled", false);
+            var hasBackup = NodePropertyReader.GetBool(database, "backupEnabled", false);
+
+            if (replicas + readReplicas <= 1 && !hasFailover)
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "Database has no replica or failover configured.",
+                    NodeId = database.Id,
+                    PropertyKey = "replicas"
+                });
+            }
+
+            if (!hasBackup)
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "Database backups are disabled or missing.",
+                    NodeId = database.Id,
+                    PropertyKey = "backupEnabled"
+                });
+            }
+        }
+
+        foreach (var queue in queues)
+        {
+            if (!NodePropertyReader.GetBool(queue, "deadLetterQueueEnabled", false))
+            {
+                result.Issues.Add(new DesignValidationIssue
+                {
+                    Severity = ValidationSeverity.Warning,
+                    Message = "Queue has no dead-letter queue configured.",
+                    NodeId = queue.Id,
+                    PropertyKey = "deadLetterQueueEnabled"
+                });
+            }
+        }
+    }
     private static bool IsMissing(object? value)
     {
         return value is null || value is string text && string.IsNullOrWhiteSpace(text);

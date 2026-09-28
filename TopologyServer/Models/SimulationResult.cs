@@ -4,6 +4,8 @@ namespace TopologyServer;
 
 public class SimulationResult
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public SimulationExecutionResult? Execution { get; set; }
     public SimulationScenario Scenario { get; set; }
     public SimulationRiskLevel RiskLevel { get; set; }
     public int RiskScore { get; set; }

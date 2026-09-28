@@ -8,6 +8,18 @@ namespace TopologyServer.Tests;
 
 public sealed class SimulationControllerTests : IClassFixture<TestWebApplicationFactory>
 {
+    [Fact]
+    public async Task RunSimulation_WithNewConfiguration_DoesNotSilentlyUseLegacyEvaluator()
+    {
+        ResetDesignServiceWithDatabase(new Dictionary<string, object>());
+        using var client = CreateAuthenticatedClient();
+        var response = await client.PostAsJsonAsync("/api/rooms/room-1/simulations/run",
+            new RunSimulationDto { Configuration = new SimulationConfiguration() }, JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Contains("not available yet", await response.Content.ReadAsStringAsync());
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() }

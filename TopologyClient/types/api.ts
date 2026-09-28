@@ -115,6 +115,7 @@ export type ConnectionRule = {
 };
 
 export type RunSimulationDto = {
+  configuration?: import("./simulation").SimulationConfiguration | null;
   scenario: SimulationScenario;
   trafficPerSecond?: number | null;
   readPercentage?: number | null;
@@ -150,6 +151,7 @@ export type SimulationEdgeResult = {
 };
 
 export type SimulationResult = {
+  execution?: import("./simulation").SimulationExecutionResult | null;
   scenario: SimulationScenario;
   riskLevel: SimulationRiskLevel;
   riskScore: number;

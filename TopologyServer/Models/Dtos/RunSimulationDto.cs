@@ -2,6 +2,7 @@ namespace TopologyServer;
 
 public class RunSimulationDto
 {
+    public SimulationConfiguration? Configuration { get; set; }
     public SimulationScenario Scenario { get; set; }
     public int? TrafficPerSecond { get; set; }
     public int? ReadPercentage { get; set; }

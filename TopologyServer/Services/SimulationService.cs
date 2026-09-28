@@ -27,6 +27,11 @@ public class SimulationService : ISimulationService
             throw new KeyNotFoundException("Design not found");
         }
 
+        if (runSimulationDto.Configuration != null)
+        {
+            throw new NotSupportedException("The event simulation engine is not available yet. Omit configuration to use the existing evaluator.");
+        }
+
         if (!_handlers.TryGetValue(runSimulationDto.Scenario, out var handler))
         {
             _logger.LogWarning("Unsupported simulation scenario {Scenario} for room {RoomId}", runSimulationDto.Scenario, roomId);

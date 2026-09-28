@@ -1,3 +1,6 @@
+# Local planning documents
+/docs/simulation-contract.md
+
 # Dependencies
 node_modules/
 TopologyClient/node_modules/

@@ -92,7 +92,7 @@ public class SimulationRunnerTests
         var cancelled = new SimulationRunner().Run(Design(), new(), cancellation.Token).Execution!;
         Assert.Equal(SimulationStopReason.Cancelled, cancelled.StopReason);
         Assert.Equal(0, cancelled.Summary.Requests.Generated);
-        var limited = Run(new() { DurationSeconds = 2, MetricIntervalMs = 100, Limits = new() { MaxRetainedRecords = 18 } });
+        var limited = Run(new() { DurationSeconds = 2, MetricIntervalMs = 100, Limits = new() { MaxRetainedRecords = 36 } });
         Assert.Equal(SimulationStopReason.RetainedRecordLimit, limited.StopReason);
         Assert.Equal(limited.ElapsedMicroseconds, limited.Timeline[^1].AtMicroseconds);
         Assert.Equal(limited.Summary.Requests.Generated, limited.Timeline.Sum(s => s.Measurements.Requests.Generated));

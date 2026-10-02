@@ -1,4 +1,4 @@
-import type { SimulationNodeStatus } from "./api";
+import type { SimulationNodeStatus, SimulationNodeResult } from "./api";
 export type SimulationConfiguration = {
   durationSeconds?: number;
   randomSeed?: number;
@@ -8,6 +8,9 @@ export type SimulationConfiguration = {
   limits?: SimulationExecutionLimits;
   scheduledEvents?: ScheduledSimulationEvent[];
   edgeDelayMs?: Record<string, number>;
+  routing?: { policy?: "RoundRobin" | "LeastConnections"; healthCheckIntervalMs?: number; detectionDelayMs?: number };
+  cache?: { capacity?: number; ttlMs?: number; lookupMs?: number };
+  queue?: { capacity?: number; workerConcurrency?: number; workerProcessingMs?: number; maxDeliveries?: number; retryDelayMs?: number; acknowledgementTimeoutMs?: number };
 };
 
 export type SimulationWorkload = {
@@ -15,6 +18,7 @@ export type SimulationWorkload = {
   readPercentage?: number | null;
   writePercentage?: number | null;
   clientTimeoutMs?: number;
+  keySpaceSize?: number;
 };
 
 export type SimulationBehaviorDefaults = {
@@ -39,11 +43,13 @@ export type SimulationExecutionLimits = {
 };
 
 export type ScheduledSimulationEvent = {
-  type: "TrafficChange" | "ComponentFailure" | "ComponentRecovery";
+  type: "TrafficChange" | "ComponentFailure" | "ComponentRecovery" | "TrafficRamp";
   atMicroseconds: number;
   targetNodeId?: string | null;
   targetReplicaId?: string | null;
   requestsPerSecond?: number | null;
+  endAtMicroseconds?: number | null;
+  endRequestsPerSecond?: number | null;
 };
 export type ResolvedSimulationConfiguration = Required<Omit<SimulationConfiguration,
   "workload" | "defaults" | "limits">> & {
@@ -52,6 +58,7 @@ export type ResolvedSimulationConfiguration = Required<Omit<SimulationConfigurat
     readPercentage: number;
     writePercentage: number;
     clientTimeoutMs: number;
+    keySpaceSize: number;
   };
   defaults: Required<SimulationBehaviorDefaults>;
   limits: Required<SimulationExecutionLimits>;
@@ -76,6 +83,9 @@ export type SimulationMeasurements = {
   requests: SimulationRequestMetrics;
   resources: SimulationResourceMetrics[];
   edges: SimulationEdgeMetrics[];
+  nodes: SimulationNodeResult[];
+  cache: { hits: number; misses: number; evictions: number; invalidations: number; entries: number };
+  jobs: { accepted: number; completed: number; deadLettered: number; redeliveries: number; rejected: number; lost: number; waiting: number; active: number };
 };
 
 export type SimulationRequestMetrics = {
@@ -101,7 +111,7 @@ export type SimulationLatencyMetrics = {
 export type SimulationResourceMetrics = {
   nodeId: string;
   replicaId: string | null;
-  kind: "ServiceExecution" | "DatabasePool" | "DatabaseConnections" | "DatabaseExecution";
+  kind: "ServiceExecution" | "DatabasePool" | "DatabaseConnections" | "DatabaseExecution" | "WorkerExecution";
   capacity: number;
   active: number;
   queueDepth: number;
@@ -109,6 +119,7 @@ export type SimulationResourceMetrics = {
   rejected: number;
   utilizationRatio: number | null;
   unavailableMicroseconds: number;
+  isAvailable: boolean;
 };
 
 export type SimulationEdgeMetrics = {

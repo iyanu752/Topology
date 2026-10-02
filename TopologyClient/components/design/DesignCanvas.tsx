@@ -110,6 +110,8 @@ export function DesignCanvas() {
   const sample = simulationResult?.execution?.timeline[simulationFrame];
   const simulationNodeResultsById = new Map<string, SimulationNodeResult>(simulationResult?.nodeResults.map(result => {
     if (!sample) return [result.nodeId, result];
+    const recorded = sample.measurements.nodes.find(node => node.nodeId === result.nodeId);
+    if (recorded) return [result.nodeId, recorded];
     const resources = sample.measurements.resources.filter(r => r.nodeId === result.nodeId);
     const waiting = resources.reduce((n, r) => n + r.queueDepth, 0);
     const load = Math.max(0, ...resources.map(r => r.active / r.capacity));
@@ -119,7 +121,8 @@ export function DesignCanvas() {
     if (!sample) return [result.edgeId, result];
     const edge = sample.measurements.edges.find(e => e.edgeId === result.edgeId);
     const seconds = (sample.atMicroseconds - sample.intervalStartMicroseconds) / 1000000;
-    return [result.edgeId, { ...result, trafficPerSecond: seconds > 0 ? Math.round((edge?.calls ?? 0) / seconds) : 0 }];
+    const broken = sample.measurements.nodes.some(node => (node.nodeId === result.sourceNodeId || node.nodeId === result.targetNodeId) && node.status === "Offline");
+    return [result.edgeId, { ...result, status: broken ? "Broken" : "Healthy", trafficPerSecond: seconds > 0 ? Math.round((edge?.calls ?? 0) / seconds) : 0 }];
   }) ?? []);
 
   useEffect(() => {
@@ -665,6 +668,7 @@ export function DesignCanvas() {
       ) : null}
 
       <SimulationPanel onRun={runSimulation} busy={simulationBusy} error={simulationError} result={simulationResult}
+        targets={nodes.map(node => ({ id: node.id, label: String(node.configuration.displayName || node.component.name), replicas: Number(node.configuration.replicas ?? 1) }))}
         frame={simulationFrame} onFrame={setSimulationFrame} onExample={addSimulationExample}
         onCancel={() => { simulationAbort.current?.abort(); setSimulationBusy(false); }} />
 

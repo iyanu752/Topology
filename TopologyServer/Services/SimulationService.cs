@@ -29,8 +29,6 @@ public class SimulationService : ISimulationService
 
         if (runSimulationDto.Configuration != null)
         {
-            if (runSimulationDto.Scenario != SimulationScenario.NormalTraffic && runSimulationDto.Scenario != SimulationScenario.HighTraffic)
-                throw new ArgumentException("The event engine currently supports traffic workloads only. Scheduled failure scenarios are not supported yet.");
             return new SimulationRunner().Run(design, runSimulationDto.Configuration, cancellationToken);
         }
 

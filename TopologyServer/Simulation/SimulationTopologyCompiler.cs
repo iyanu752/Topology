@@ -45,14 +45,45 @@ public sealed class SimulationTopologyCompiler
         var outgoing = design.Edges.GroupBy(e => e.SourceNodeId)
             .ToDictionary(g => g.Key, g => g.OrderBy(e => e.Id, StringComparer.Ordinal).ToArray(), StringComparer.Ordinal);
         var client = clients[0];
-        var clientEdge = RequireRoute(client, ComponentType.Service, outgoing, nodes);
+        var entry = client;
+        Node? loadBalancer = null;
+        if (outgoing.TryGetValue(client.Id, out var entryEdges) && entryEdges.Length == 1 && nodes[entryEdges[0].TargetNodeId].Type == ComponentType.LoadBalancer)
+        {
+            loadBalancer = nodes[entryEdges[0].TargetNodeId];
+            entry = loadBalancer;
+        }
+        var clientEdge = RequireRoute(entry, ComponentType.Service, outgoing, nodes);
         var service = nodes[clientEdge.TargetNodeId];
-        var serviceEdge = RequireRoute(service, ComponentType.Database, outgoing, nodes);
+        var dependencies = outgoing.GetValueOrDefault(service.Id) ?? [];
+        var databaseRoutes = dependencies.Where(e => nodes[e.TargetNodeId].Type == ComponentType.Database).ToArray();
+        if (databaseRoutes.Length != 1)
+            throw Failure(databaseRoutes.Length == 0 ? (dependencies.Length == 0 ? "MissingDependency" : "UnsupportedRoute") : "AmbiguousRoute", "The service needs exactly one database dependency.", service.Id);
+        var serviceEdge = databaseRoutes[0];
         var database = nodes[serviceEdge.TargetNodeId];
         if (outgoing.TryGetValue(database.Id, out var databaseEdges) && databaseEdges.Length > 0)
             throw Failure("UnsupportedRoute", "The Database must end the request path. Remove its outgoing calls; responses do not need reverse edges.", database.Id, databaseEdges[0].Id);
 
-        var active = new[] { client, service, database };
+        var active = new List<Node> { client, service, database };
+        if (loadBalancer != null) active.Add(loadBalancer);
+        Node? cache = null;
+        Node? queue = null;
+        foreach (var edge in dependencies.Where(e => e != serviceEdge))
+        {
+            var dependency = nodes[edge.TargetNodeId];
+            if (dependency.Type == ComponentType.Cache && cache == null) { cache = dependency; active.Add(cache); }
+            else if (dependency.Type == ComponentType.Queue && queue == null) { queue = dependency; active.Add(queue); }
+            else throw Failure("AmbiguousRoute", "The service supports one database, one cache, and one queue dependency.", service.Id, edge.Id);
+        }
+        if (cache != null && outgoing.ContainsKey(cache.Id)) throw Failure("UnsupportedRoute", "Cache responses return to the service; remove outgoing cache edges.", cache.Id);
+        if (queue != null)
+        {
+            var workerEdge = RequireRoute(queue, ComponentType.Service, outgoing, nodes);
+            var worker = nodes[workerEdge.TargetNodeId];
+            if (worker == service) throw Failure("UnsupportedRoute", "The queue needs a separate worker Service node.", queue.Id);
+            var workerDatabase = RequireRoute(worker, ComponentType.Database, outgoing, nodes);
+            if (workerDatabase.TargetNodeId != database.Id) throw Failure("UnsupportedRoute", "The worker must use the same database as the service.", worker.Id);
+            active.Add(worker);
+        }
         var activeIds = active.Select(n => n.Id).ToHashSet(StringComparer.Ordinal);
         var definitions = new Dictionary<string, SimulationComponentDefinition>(StringComparer.Ordinal);
         var assumptions = new List<string>();
@@ -82,7 +113,7 @@ public sealed class SimulationTopologyCompiler
             else
             {
                 modeled.Add("replicas");
-                ValidateInteger(node, properties, "replicas", 1, 1);
+                ValidateInteger(node, properties, "replicas", 1, node.Type == ComponentType.Service ? 100 : 1);
                 if (node.Type == ComponentType.Database)
                 {
                     modeled.UnionWith(["readReplicas", "maxConnections"]);
@@ -98,8 +129,10 @@ public sealed class SimulationTopologyCompiler
 
         return new CompiledTopology(design.Id, design.Revision,
             new(definitions[client.Id]), new(definitions[service.Id]), new(definitions[database.Id]),
-            new[] { clientEdge, serviceEdge }.Select(e => new SimulationRoute(e.Id, e.SourceNodeId, e.TargetNodeId)),
-            nodes.Keys.Where(id => !activeIds.Contains(id)), assumptions);
+            design.Edges.Where(e => activeIds.Contains(e.SourceNodeId)).OrderBy(e => e.Id, StringComparer.Ordinal)
+                .Select(e => new SimulationRoute(e.Id, e.SourceNodeId, e.TargetNodeId)),
+            nodes.Keys.Where(id => !activeIds.Contains(id)), assumptions,
+            active.Where(n => n != client && n != service && n != database).Select(n => new SimulationRuntimeComponent(definitions[n.Id])));
     }
 
     private static Edge RequireRoute(Node source, ComponentType expected,

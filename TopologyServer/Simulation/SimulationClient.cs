@@ -5,22 +5,44 @@ public sealed class SimulationClient(SimulationEngine engine, SimulationWorkload
     public List<SimulationRequest> Requests { get; } = [];
     public Action<SimulationRequest> OnRequest { get; set; } = _ => { };
     public Action<SimulationRequest> OnTimeout { get; set; } = _ => { };
+    private long _generation;
+    private long _origin;
+    private int _rate;
+    public bool IsAvailable { get; private set; } = true;
+
+    public void SetAvailable(bool available)
+    {
+        IsAvailable = available;
+        ChangeRate(_rate);
+        if (!available)
+            foreach (var request in Requests.Where(r => r.IsPending))
+                if (request.Finish(SimulationRequestOutcome.Failed, engine.NowMicroseconds, "ClientUnavailable")) OnTimeout(request);
+    }
 
     public void Start()
     {
-        if (workload.RequestsPerSecond > 0) ScheduleArrival(0);
+        ChangeRate(workload.RequestsPerSecond ?? 0);
+    }
+
+    public void ChangeRate(int rate)
+    {
+        _generation++;
+        _origin = engine.NowMicroseconds;
+        _rate = rate;
+        if (rate > 0 && IsAvailable) ScheduleArrival(0);
     }
 
     private void ScheduleArrival(long index)
     {
-        var time = (long)Math.Round(index * 1_000_000.0 / workload.RequestsPerSecond!.Value, MidpointRounding.AwayFromZero);
+        var generation = _generation;
+        var time = _origin + (long)Math.Round(index * 1_000_000.0 / _rate, MidpointRounding.AwayFromZero);
         if (time >= engine.DurationMicroseconds) return;
         engine.Schedule(time, SimulationEventPriority.Ordinary, _ =>
         {
-            if (!engine.TryRegisterRequest()) return;
-            var request = new SimulationRequest(index, time,
+            if (generation != _generation || !engine.TryRegisterRequest()) return;
+            var request = new SimulationRequest(Requests.Count, time,
                 time + SimulationTime.FromMilliseconds(workload.ClientTimeoutMs),
-                engine.Random.NextDouble() * 100 < workload.ReadPercentage);
+                engine.Random.NextDouble() * 100 < workload.ReadPercentage) { Key = (int)(engine.Random.NextDouble() * workload.KeySpaceSize) };
             Requests.Add(request);
             engine.Schedule(request.Deadline, SimulationEventPriority.Deadline, _ =>
             {

@@ -17,7 +17,7 @@ export function SimulationPlayback({ execution, frame, onFrame }: { execution: S
   const total = execution.summary.requests;
   const current = sample?.measurements.requests;
   const format = (value: number | null | undefined) => value == null ? "—" : value.toFixed(1);
-  const resourceLabels = { ServiceExecution: "Service slots", DatabasePool: "DB connections", DatabaseConnections: "DB connections", DatabaseExecution: "Database slots" };
+  const resourceLabels = { ServiceExecution: "Service slots", DatabasePool: "Pool connections", DatabaseConnections: "DB connections", DatabaseExecution: "Database slots", WorkerExecution: "Worker slots" };
   function chart(label: string, values: number[], color: string) {
     const max = Math.max(1, ...values);
     const points = values.map((value, i) => `${i * 280 / Math.max(1, values.length - 1)},${45 - value / max * 40}`).join(" ");
@@ -39,8 +39,12 @@ export function SimulationPlayback({ execution, frame, onFrame }: { execution: S
       <p className="text-xs text-zinc-400">Selected interval: {format(current?.successfulRequestsPerSecond)} successful req/s · p95 {format(current?.successfulLatency.p95Ms)} ms</p>
       {chart("Successful requests / second", samples.map(s => s.measurements.requests.successfulRequestsPerSecond ?? 0), "#34d399")}
       {chart("Waiting requests", samples.map(s => s.measurements.resources.reduce((n, r) => n + r.queueDepth, 0)), "#fbbf24")}
-      <table className="mt-2 w-full text-left text-xs"><caption className="mb-1 text-left text-zinc-400">Resources at selected time</caption><thead><tr><th>Resource</th><th>Active</th><th>Waiting</th></tr></thead><tbody>{sample.measurements.resources.map(r => <tr key={r.nodeId + r.kind}><td className="py-1">{resourceLabels[r.kind]}</td><td>{r.active}/{r.capacity}</td><td>{r.queueDepth}</td></tr>)}</tbody></table>
+      <table className="mt-2 w-full text-left text-xs"><caption className="mb-1 text-left text-zinc-400">Resources at selected time</caption><thead><tr><th>Resource</th><th>Active</th><th>Waiting</th></tr></thead><tbody>{sample.measurements.resources.map(r => <tr key={r.nodeId + r.replicaId + r.kind}><td className="py-1">{resourceLabels[r.kind]}{r.replicaId && <span className="block max-w-40 truncate text-zinc-500" title={r.replicaId}>{r.replicaId}</span>}{!r.isAvailable && <span className="text-red-300"> Offline</span>}</td><td>{r.active}/{r.capacity}</td><td>{r.queueDepth}</td></tr>)}</tbody></table>
+      <p className="mt-3 text-xs text-zinc-300">Cache this interval: {sample.measurements.cache.hits} hits / {sample.measurements.cache.misses} misses · {sample.measurements.cache.entries} entries</p>
+      <p className="mt-2 text-xs text-zinc-300">Jobs at this time: {sample.measurements.jobs.waiting} waiting · {sample.measurements.jobs.active} running</p>
     </>}
+    <p className="mt-3 text-xs text-zinc-300">Jobs over the whole run: {execution.summary.jobs.accepted} accepted · {execution.summary.jobs.completed} completed · {execution.summary.jobs.redeliveries} redeliveries · {execution.summary.jobs.deadLettered} exhausted · {execution.summary.jobs.lost} lost</p>
+    {execution.stateTransitions.length > 0 && <details className="mt-3 text-xs text-zinc-400"><summary>Failures and recovery</summary>{execution.stateTransitions.map((event, i) => <p key={i} className="my-1">{(event.atMicroseconds / 1000000).toFixed(2)} s: {event.replicaId ?? event.nodeId} — {event.reason}</p>)}</details>}
     {execution.unusedNodeIds.length > 0 && <p className="mt-2 text-xs text-amber-300">{execution.unusedNodeIds.length} disconnected nodes were unused.</p>}
     <details className="mt-3 text-xs text-zinc-400"><summary>Model assumptions</summary><p className="my-2">Fixed processing times; one database operation per request. CPU, memory and backups do not change these results.</p>{execution.assumptions.map(a => <p key={a} className="my-1">{a}</p>)}</details>
   </div>;

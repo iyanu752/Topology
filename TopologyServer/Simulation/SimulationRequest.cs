@@ -12,7 +12,12 @@ public sealed class SimulationRequest(long id, long createdAt, long deadline, bo
     public long? FinishedAt { get; private set; }
     public string? FailureCause { get; private set; }
     public bool DatabaseExecuting { get; set; }
+    public int Key { get; init; }
+    public string? ReplicaId { get; set; }
+    public bool AcceptedAsJob { get; set; }
+    public bool IsCancelled { get; set; }
     public bool IsPending => Outcome == SimulationRequestOutcome.InFlight;
+    public bool IsRunnable => IsPending && !IsCancelled;
 
     public bool Finish(SimulationRequestOutcome outcome, long now, string? cause = null)
     {

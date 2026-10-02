@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ComponentLibraryItem } from "@/components/component-library/componentLibraryItems";
+import { componentLibraryItems } from "@/components/component-library/componentLibraryItems";
+import { simulationService } from "@/services/simulationService";
 import { dragPayloadType } from "@/components/component-library/ComponentLibraryItem";
 import { WelcomePanel } from "@/components/home/WelcomePanel";
 import { connectionRuleService } from "@/services";
 import { ApiError } from "@/services/apiClient";
-import type { SimulationEdgeResult, SimulationEdgeStatus, SimulationNodeResult, SimulationResult } from "@/types";
+import type { SimulationEdgeResult, SimulationNodeResult, SimulationResult } from "@/types";
 import { CanvasContextMenu } from "./CanvasContextMenu";
 import { CanvasToolbar } from "./CanvasToolbar";
 import { DesignEdgeLayer } from "./DesignEdgeLayer";
@@ -14,7 +16,7 @@ import { DesignNodeCard, designNodeSize, type DesignEdge, type DesignNode, type 
 import { NodeContextMenu } from "./NodeContextMenu";
 import { NodePropertiesPanel } from "./NodePropertiesPanel";
 import { SimulationPanel, type SimulationPanelConfig } from "./SimulationPanel";
-import { getComponentTypeForLibraryItem } from "./canvasDesignMapper";
+import { getComponentTypeForLibraryItem, mapCanvasDesignToSaveDesignDto } from "./canvasDesignMapper";
 import { cloneNodeConfiguration, createDefaultNodeConfiguration, createNodeConfiguration } from "./nodeConfiguration";
 
 type CanvasState = {
@@ -95,14 +97,39 @@ export function DesignCanvas() {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [simulationResult, setSimulationResult] = useState<SimulationResult | null>(null);
+  const [simulationBusy, setSimulationBusy] = useState(false);
+  const [simulationError, setSimulationError] = useState<string | null>(null);
+  const [simulationFrame, setSimulationFrame] = useState(0);
+  const simulationAbort = useRef<AbortController | null>(null);
   const [hasSavedBrowserDesign, setHasSavedBrowserDesign] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<CanvasPan>({ x: 0, y: 0 });
 
   const { nodes, edges } = history.present;
   const selectedNode = selectedNodeId ? nodes.find((node) => node.id === selectedNodeId) ?? null : null;
-  const simulationNodeResultsById = new Map(simulationResult?.nodeResults.map((result) => [result.nodeId, result]) ?? []);
-  const simulationEdgeResultsById = new Map(simulationResult?.edgeResults.map((result) => [result.edgeId, result]) ?? []);
+  const sample = simulationResult?.execution?.timeline[simulationFrame];
+  const simulationNodeResultsById = new Map<string, SimulationNodeResult>(simulationResult?.nodeResults.map(result => {
+    if (!sample) return [result.nodeId, result];
+    const resources = sample.measurements.resources.filter(r => r.nodeId === result.nodeId);
+    const waiting = resources.reduce((n, r) => n + r.queueDepth, 0);
+    const load = Math.max(0, ...resources.map(r => r.active / r.capacity));
+    return [result.nodeId, { ...result, loadPercentage: Math.round(load * 100), status: waiting > 0 || load >= 1 ? "Saturated" : "Online", message: `${waiting} waiting`, metrics: { queueDepth: waiting } }];
+  }) ?? []);
+  const simulationEdgeResultsById = new Map<string, SimulationEdgeResult>(simulationResult?.edgeResults.map(result => {
+    if (!sample) return [result.edgeId, result];
+    const edge = sample.measurements.edges.find(e => e.edgeId === result.edgeId);
+    const seconds = (sample.atMicroseconds - sample.intervalStartMicroseconds) / 1000000;
+    return [result.edgeId, { ...result, trafficPerSecond: seconds > 0 ? Math.round((edge?.calls ?? 0) / seconds) : 0 }];
+  }) ?? []);
+
+  useEffect(() => {
+    simulationAbort.current?.abort();
+    setSimulationBusy(false);
+    setSimulationResult(null);
+    setSimulationError(null);
+  }, [history.present]);
+
+  useEffect(() => () => simulationAbort.current?.abort(), []);
 
   useEffect(() => {
     setHasSavedBrowserDesign(hasBrowserSavedDesign());
@@ -478,12 +505,35 @@ export function DesignCanvas() {
     });
   }
 
-  function runSimulation(config: SimulationPanelConfig) {
-    const result = createLocalSimulationResult(history.present, config);
-    const label = config.scenario.replace(/([A-Z])/g, " $1").trim();
+  async function runSimulation(config: SimulationPanelConfig) {
+    simulationAbort.current?.abort();
+    const controller = new AbortController();
+    simulationAbort.current = controller;
+    setSimulationBusy(true);
+    setSimulationError(null);
+    setSimulationResult(null);
+    try {
+      const result = await simulationService.preview(mapCanvasDesignToSaveDesignDto(history.present), config, controller.signal);
+      if (controller.signal.aborted) return;
+      setSimulationFrame(0);
+      setSimulationResult(result);
+    } catch (error) {
+      if (!controller.signal.aborted) setSimulationError(error instanceof Error ? error.message : "Simulation failed.");
+    } finally {
+      if (simulationAbort.current === controller) setSimulationBusy(false);
+    }
+  }
 
-    setSimulationResult(result);
-    showToast(`${label} painted on canvas at ${config.trafficPerSecond.toLocaleString()} req/s.`);
+  function addSimulationExample() {
+    if (nodes.length > 0) { showToast("Use an empty canvas to add the example. Your current design was kept."); return; }
+    const sampleNodes = ["client", "service", "database"].map((id, index): DesignNode => {
+      const component = componentLibraryItems.find(item => item.id === id)!;
+      return { id: `example-${id}`, component, configuration: createDefaultNodeConfiguration(component), status: "Online", x: 470 + index * 290, y: 260 };
+    });
+    commitCanvasState({ nodes: sampleNodes, edges: [
+      { id: "example-client-service", fromNodeId: sampleNodes[0].id, toNodeId: sampleNodes[1].id },
+      { id: "example-service-database", fromNodeId: sampleNodes[1].id, toNodeId: sampleNodes[2].id }
+    ] });
   }
 
   function saveDesignToBrowser() {
@@ -614,7 +664,9 @@ export function DesignCanvas() {
         />
       ) : null}
 
-      <SimulationPanel onRun={runSimulation} />
+      <SimulationPanel onRun={runSimulation} busy={simulationBusy} error={simulationError} result={simulationResult}
+        frame={simulationFrame} onFrame={setSimulationFrame} onExample={addSimulationExample}
+        onCancel={() => { simulationAbort.current?.abort(); setSimulationBusy(false); }} />
 
       <CanvasToolbar
         canLoadSavedDesign={hasSavedBrowserDesign}
@@ -774,203 +826,6 @@ function isPan(value: unknown): value is CanvasPan {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function createLocalSimulationResult(canvasState: CanvasState, config: SimulationPanelConfig): SimulationResult {
-  const nodeResults = canvasState.nodes.map((node): SimulationNodeResult => {
-    const status = getLocalNodeStatus(node, config, canvasState);
-    const loadPercentage = getLocalLoadPercentage(node, status, config);
-
-    return {
-      nodeId: node.id,
-      status,
-      message: getLocalNodeMessage(node, status, config),
-      loadPercentage,
-      metrics: {
-        componentLibraryId: node.component.id,
-        label: node.component.name
-      }
-    };
-  });
-
-  const nodeResultById = new Map(nodeResults.map((result) => [result.nodeId, result]));
-  const edgeResults = canvasState.edges.map((edge): SimulationEdgeResult => {
-    const sourceStatus = nodeResultById.get(edge.fromNodeId)?.status ?? "Online";
-    const targetStatus = nodeResultById.get(edge.toNodeId)?.status ?? "Online";
-    const status = getLocalEdgeStatus(sourceStatus, targetStatus);
-
-    return {
-      edgeId: edge.id,
-      sourceNodeId: edge.fromNodeId,
-      targetNodeId: edge.toNodeId,
-      status,
-      message: getLocalEdgeMessage(status),
-      trafficPerSecond: config.trafficPerSecond
-    };
-  });
-
-  const affectedNodeIds = nodeResults.filter((result) => result.status !== "Online").map((result) => result.nodeId);
-  const riskScore = Math.min(8, nodeResults.reduce((score, result) => score + getNodeRiskScore(result.status), 0));
-
-  return {
-    scenario: config.scenario,
-    riskLevel: getRiskLevel(riskScore),
-    riskScore,
-    findings: affectedNodeIds.length > 0 ? ["Simulation changed one or more node states on the canvas."] : ["Simulation kept all nodes online."],
-    impact: affectedNodeIds.length > 0 ? ["Affected nodes and paths are highlighted on the canvas."] : ["No visible impact detected for this local preview."],
-    recommendations: ["Backend simulation can replace this local preview once save/load auth flow is wired."],
-    affectedNodeIds,
-    nodeResults,
-    edgeResults
-  };
-}
-
-function getLocalNodeStatus(node: DesignNode, config: SimulationPanelConfig, canvasState: CanvasState): NodeStatus {
-  if (config.scenario === "DatabaseFailure" && node.component.id === "database") {
-    return "Offline";
-  }
-
-  if (config.scenario === "CacheFailure" && node.component.id === "cache") {
-    return "Offline";
-  }
-
-  if (config.scenario === "QueueBacklog" && node.component.id === "queue") {
-    return "Saturated";
-  }
-
-  if (config.scenario === "ExternalApiFailure" && node.component.id === "external-api") {
-    return "Offline";
-  }
-
-  if (config.scenario === "DatabaseFailure" && isConnectedToComponent(node.id, "database", canvasState)) {
-    return "Degraded";
-  }
-
-  if ((config.scenario === "HighTraffic" || config.scenario === "SuddenUserGrowth") && ["service", "api-gateway", "load-balancer"].includes(node.component.id)) {
-    return config.trafficPerSecond > 1500 ? "Saturated" : "Degraded";
-  }
-
-  if (config.scenario === "HighLatency" && ["service", "database", "external-api"].includes(node.component.id)) {
-    return "Degraded";
-  }
-
-  if (config.scenario === "ReadHeavyWorkload" && node.component.id === "database" && !hasComponent("cache", canvasState)) {
-    return "Degraded";
-  }
-
-  if (config.scenario === "WriteHeavyWorkload" && ["database", "queue"].includes(node.component.id)) {
-    return config.hasCriticalWrites ? "Saturated" : "Degraded";
-  }
-
-  return node.status;
-}
-
-function getLocalLoadPercentage(node: DesignNode, status: NodeStatus, config: SimulationPanelConfig) {
-  if (status === "Offline") {
-    return 0;
-  }
-
-  if (status === "Saturated") {
-    return 99;
-  }
-
-  if (status === "Degraded") {
-    return Math.min(88, Math.max(62, Math.round(config.trafficPerSecond / 30)));
-  }
-
-  if (["service", "api-gateway", "load-balancer"].includes(node.component.id)) {
-    return Math.min(74, Math.max(18, Math.round(config.trafficPerSecond / 80)));
-  }
-
-  return 32;
-}
-
-function getLocalNodeMessage(node: DesignNode, status: NodeStatus, config: SimulationPanelConfig) {
-  if (status === "Offline") {
-    return `${node.component.name} is offline in this scenario.`;
-  }
-
-  if (status === "Saturated") {
-    return `${node.component.name} is saturated by ${config.trafficPerSecond.toLocaleString()} req/s.`;
-  }
-
-  if (status === "Degraded") {
-    return `${node.component.name} is degraded by the selected scenario.`;
-  }
-
-  return "Node stays online in this scenario.";
-}
-
-function getLocalEdgeStatus(sourceStatus: NodeStatus, targetStatus: NodeStatus): SimulationEdgeStatus {
-  if (sourceStatus === "Offline" || targetStatus === "Offline") {
-    return "Broken";
-  }
-
-  if (sourceStatus === "Saturated" || targetStatus === "Saturated") {
-    return "Saturated";
-  }
-
-  if (sourceStatus === "Degraded" || targetStatus === "Degraded") {
-    return "Degraded";
-  }
-
-  return "Healthy";
-}
-
-function getLocalEdgeMessage(status: SimulationEdgeStatus) {
-  switch (status) {
-    case "Broken":
-      return "Traffic path is broken by an offline node.";
-    case "Saturated":
-      return "Traffic path crosses a saturated node.";
-    case "Degraded":
-      return "Traffic path crosses a degraded node.";
-    case "Healthy":
-      return "Traffic path is healthy.";
-  }
-}
-
-function getNodeRiskScore(status: NodeStatus) {
-  switch (status) {
-    case "Offline":
-      return 3;
-    case "Saturated":
-      return 2;
-    case "Degraded":
-      return 1;
-    case "Online":
-      return 0;
-  }
-}
-
-function getRiskLevel(riskScore: number) {
-  if (riskScore <= 1) {
-    return "Low";
-  }
-
-  if (riskScore <= 3) {
-    return "Medium";
-  }
-
-  if (riskScore <= 5) {
-    return "High";
-  }
-
-  return "Critical";
-}
-
-function isConnectedToComponent(nodeId: string, componentId: string, canvasState: CanvasState) {
-  const targetNodeIds = canvasState.nodes.filter((node) => node.component.id === componentId).map((node) => node.id);
-
-  return canvasState.edges.some(
-    (edge) =>
-      (edge.fromNodeId === nodeId && targetNodeIds.includes(edge.toNodeId)) ||
-      (edge.toNodeId === nodeId && targetNodeIds.includes(edge.fromNodeId))
-  );
-}
-
-function hasComponent(componentId: string, canvasState: CanvasState) {
-  return canvasState.nodes.some((node) => node.component.id === componentId);
 }
 
 function getCanvasPoint(clientX: number, clientY: number, bounds: DOMRect, zoom: number, pan: CanvasPan) {

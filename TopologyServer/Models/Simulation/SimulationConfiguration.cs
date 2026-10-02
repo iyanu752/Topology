@@ -8,6 +8,7 @@ public class SimulationConfiguration
     public SimulationBehaviorDefaults Defaults { get; set; } = new();
     public SimulationExecutionLimits Limits { get; set; } = new();
     public List<ScheduledSimulationEvent> ScheduledEvents { get; set; } = [];
+    public Dictionary<string, double> EdgeDelayMs { get; set; } = [];
 }
 
 public class SimulationWorkload

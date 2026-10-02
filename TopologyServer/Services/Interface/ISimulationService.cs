@@ -5,6 +5,6 @@ namespace TopologyServer;
 
 public interface ISimulationService
 {
-    Task<SimulationResult> RunSimulationAsync(ClaimsPrincipal principal, string roomId, RunSimulationDto runSimulationDto);
+    Task<SimulationResult> RunSimulationAsync(ClaimsPrincipal principal, string roomId, RunSimulationDto runSimulationDto, CancellationToken cancellationToken = default);
 
 }

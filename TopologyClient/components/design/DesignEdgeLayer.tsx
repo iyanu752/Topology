@@ -58,6 +58,7 @@ export function DesignEdgeLayer({ draftEdge, edgeResultsById, edges, nodes }: De
               strokeWidth={style.strokeWidth}
               markerEnd={style.markerEnd}
             />
+            {edgeResult && <text x={(from.x + to.x) / 2} y={(from.y + to.y) / 2 - 12} textAnchor="middle" className="fill-zinc-200 text-[11px]">{edgeResult.trafficPerSecond ?? 0} req/s</text>}
           </g>
         );
       })}

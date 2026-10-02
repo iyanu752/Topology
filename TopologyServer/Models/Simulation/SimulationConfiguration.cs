@@ -9,6 +9,9 @@ public class SimulationConfiguration
     public SimulationExecutionLimits Limits { get; set; } = new();
     public List<ScheduledSimulationEvent> ScheduledEvents { get; set; } = [];
     public Dictionary<string, double> EdgeDelayMs { get; set; } = [];
+    public SimulationRoutingSettings Routing { get; set; } = new();
+    public SimulationCacheSettings Cache { get; set; } = new();
+    public SimulationQueueSettings Queue { get; set; } = new();
 }
 
 public class SimulationWorkload
@@ -17,6 +20,7 @@ public class SimulationWorkload
     public int? ReadPercentage { get; set; }
     public int? WritePercentage { get; set; }
     public double ClientTimeoutMs { get; set; } = 1000;
+    public int KeySpaceSize { get; set; } = 100;
 }
 public class SimulationBehaviorDefaults
 {
@@ -47,7 +51,7 @@ public class SimulationExecutionLimits
     public int MaxRetainedRecords { get; set; } = MaximumRetainedRecords;
 }
 
-public enum ScheduledSimulationEventType { TrafficChange, ComponentFailure, ComponentRecovery }
+public enum ScheduledSimulationEventType { TrafficChange, ComponentFailure, ComponentRecovery, TrafficRamp }
 
 public class ScheduledSimulationEvent
 {
@@ -56,4 +60,32 @@ public class ScheduledSimulationEvent
     public string? TargetNodeId { get; set; }
     public string? TargetReplicaId { get; set; }
     public int? RequestsPerSecond { get; set; }
+    public long? EndAtMicroseconds { get; set; }
+    public int? EndRequestsPerSecond { get; set; }
+}
+
+public enum SimulationRoutingPolicy { RoundRobin, LeastConnections }
+
+public class SimulationRoutingSettings
+{
+    public SimulationRoutingPolicy Policy { get; set; } = SimulationRoutingPolicy.RoundRobin;
+    public int HealthCheckIntervalMs { get; set; } = 100;
+    public int DetectionDelayMs { get; set; } = 100;
+}
+
+public class SimulationCacheSettings
+{
+    public int Capacity { get; set; } = 100;
+    public int TtlMs { get; set; } = 30000;
+    public double LookupMs { get; set; } = 1;
+}
+
+public class SimulationQueueSettings
+{
+    public int Capacity { get; set; } = 100;
+    public int WorkerConcurrency { get; set; } = 2;
+    public double WorkerProcessingMs { get; set; } = 10;
+    public int MaxDeliveries { get; set; } = 3;
+    public int RetryDelayMs { get; set; } = 100;
+    public int AcknowledgementTimeoutMs { get; set; } = 30000;
 }

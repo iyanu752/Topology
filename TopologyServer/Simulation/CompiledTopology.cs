@@ -32,6 +32,10 @@ public sealed class CompiledTopology
     public SimulationRuntimeComponent Client { get; }
     public SimulationRuntimeComponent Service { get; }
     public SimulationRuntimeComponent Database { get; }
+    public SimulationRuntimeComponent? LoadBalancer => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.LoadBalancer);
+    public SimulationRuntimeComponent? Cache => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.Cache);
+    public SimulationRuntimeComponent? Queue => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.Queue);
+    public SimulationRuntimeComponent? Worker => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.Service && c != Service);
     public IReadOnlyDictionary<string, SimulationRuntimeComponent> Components { get; }
     public IReadOnlyList<SimulationRoute> Routes { get; }
     public IReadOnlyList<string> UnusedNodeIds { get; }
@@ -39,7 +43,8 @@ public sealed class CompiledTopology
 
     internal CompiledTopology(string? designId, int revision, SimulationRuntimeComponent client,
         SimulationRuntimeComponent service, SimulationRuntimeComponent database,
-        IEnumerable<SimulationRoute> routes, IEnumerable<string> unusedNodeIds, IEnumerable<string> assumptions)
+        IEnumerable<SimulationRoute> routes, IEnumerable<string> unusedNodeIds, IEnumerable<string> assumptions,
+        IEnumerable<SimulationRuntimeComponent>? additional = null)
     {
         DesignId = designId;
         DesignRevision = revision;
@@ -47,7 +52,7 @@ public sealed class CompiledTopology
         Service = service;
         Database = database;
         Components = new ReadOnlyDictionary<string, SimulationRuntimeComponent>(
-            new[] { client, service, database }.OrderBy(c => c.Definition.NodeId, StringComparer.Ordinal)
+            new[] { client, service, database }.Concat(additional ?? []).OrderBy(c => c.Definition.NodeId, StringComparer.Ordinal)
                 .ToDictionary(c => c.Definition.NodeId, StringComparer.Ordinal));
         Routes = Array.AsReadOnly(routes.ToArray());
         UnusedNodeIds = Array.AsReadOnly(unusedNodeIds.Order(StringComparer.Ordinal).ToArray());

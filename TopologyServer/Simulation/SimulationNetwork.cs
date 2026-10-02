@@ -14,6 +14,13 @@ public sealed class SimulationNetwork(SimulationEngine engine, CompiledTopology 
             SimulationEventPriority.Ordinary, _ => arrival());
     }
 
+    public void Send(string source, string target, bool response, Action arrival)
+    {
+        var index = topology.Routes.ToList().FindIndex(r => r.SourceNodeId == source && r.TargetNodeId == target);
+        if (index < 0) throw new InvalidOperationException($"No route from {source} to {target}.");
+        Send(index, response, arrival);
+    }
+
     public List<SimulationEdgeMetrics> Snapshot() => _counts.Values.OrderBy(c => c.EdgeId, StringComparer.Ordinal)
         .Select(c => new SimulationEdgeMetrics { EdgeId = c.EdgeId, Calls = c.Calls, Responses = c.Responses }).ToList();
 }

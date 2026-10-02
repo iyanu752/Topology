@@ -14,7 +14,7 @@ public sealed record SimulationEngineRunResult(
 
 public sealed class SimulationEngine
 {
-    public const string Version = "discrete-event-v1-splitmix64";
+    public const string Version = "discrete-event-v2-splitmix64";
 
     private readonly PriorityQueue<Action<SimulationEngine>, (long Time, int Priority, long Sequence)> _events = new();
     private readonly int _maxProcessedEvents;

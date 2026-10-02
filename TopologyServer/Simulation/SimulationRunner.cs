@@ -11,16 +11,12 @@ public sealed class SimulationRunner
         var engine = new SimulationEngine(config.DurationSeconds, config.RandomSeed, config.Limits);
         var network = new SimulationNetwork(engine, topology, config);
         var client = new SimulationClient(engine, config.Workload);
-        var database = new SimulationDatabase(engine, network, topology, config.Defaults);
-        var service = new SimulationServiceRuntime(engine, topology, config.Defaults, database);
-        client.OnRequest = request => network.Send(0, false, () => service.Arrive(request));
-        client.OnTimeout = service.Cancel;
-        service.OnResponse = (request, error) => network.Send(0, true, () => client.Receive(request, error));
+        var workflow = new SimulationWorkflow(engine, topology, config, network, client);
         var timeline = new List<SimulationTimelineSample>();
-        var resources = new[] { service.Execution, database.Pool, database.Execution };
+        var resources = workflow.Resources;
         SimulationMeasurements? previous = null;
         long previousTime = 0;
-        const int recordsPerSnapshot = 6;
+        var recordsPerSnapshot = 3 + resources.Count + topology.Routes.Count + topology.Components.Count;
         var finalReserved = engine.TryRetainRecords(recordsPerSnapshot * 2);
 
         SimulationMeasurements Measure()
@@ -37,15 +33,16 @@ public sealed class SimulationRunner
                 Requests = new()
                 {
                     Generated = requests.Count, Succeeded = succeeded.Length, ExplicitlyFailed = failed, TimedOut = timedOut,
-                    InFlight = requests.Count(r => r.IsPending), DatabaseReadsCompleted = database.ReadsCompleted,
-                    DatabaseWritesCompleted = database.WritesCompleted,
+                    InFlight = requests.Count(r => r.IsPending), DatabaseReadsCompleted = workflow.ReadsCompleted,
+                    DatabaseWritesCompleted = workflow.WritesCompleted,
                     SuccessfulRequestsPerSecond = engine.NowMicroseconds == 0 ? null : succeeded.Length * 1_000_000.0 / engine.NowMicroseconds,
                     TerminalErrorRatio = terminal == 0 ? null : (failed + timedOut) / (double)terminal,
                     SuccessfulLatency = new() { P50Ms = Percentile(.5), P95Ms = Percentile(.95), P99Ms = Percentile(.99) },
                     FailureCountsByCause = requests.Where(r => r.FailureCause != null).GroupBy(r => r.FailureCause!)
                         .ToDictionary(g => g.Key, g => (long)g.Count())
                 },
-                Resources = resources.Select(r => r.Snapshot()).ToList(), Edges = network.Snapshot()
+                Resources = resources.Select(r => r.Snapshot()).ToList(), Edges = network.Snapshot(),
+                Cache = workflow.Cache.Snapshot(), Jobs = workflow.Jobs.Snapshot(), Nodes = workflow.NodeSnapshots()
             };
         }
 
@@ -72,6 +69,7 @@ public sealed class SimulationRunner
         if (finalReserved)
         {
             client.Start();
+            workflow.Start();
             ScheduleSample(config.MetricIntervalMs * 1000L);
         }
         var run = engine.Run(cancellationToken);
@@ -81,29 +79,26 @@ public sealed class SimulationRunner
         {
             EngineVersion = SimulationEngine.Version, ResolvedConfiguration = config, Status = run.Status,
             StopReason = run.StopReason, ElapsedMicroseconds = run.ElapsedMicroseconds, ProcessedEvents = run.ProcessedEvents,
-            Summary = summary, Timeline = timeline, Assumptions = topology.Assumptions.ToList(), UnusedNodeIds = topology.UnusedNodeIds.ToList()
+            Summary = summary, Timeline = timeline, Assumptions = topology.Assumptions.Concat(new[] {
+                "Traffic ramps change in one-second steps, with a final step at the specified end time.",
+                "Service pools hold their slots while waiting for the shared database connection limit.",
+                "Cache entries use LRU eviction and start empty. Cache outages flush entries; reads fall back to the database.",
+                "The job queue is volatile: queue failure loses waiting and unacknowledged jobs. Active work on healthy workers may still finish.",
+                "Job delivery is at least once. A write can finish after its acknowledgement times out, so redelivery may repeat it."
+            }).ToList(), UnusedNodeIds = topology.UnusedNodeIds.ToList(), StateTransitions = workflow.Transitions
         };
         return new SimulationResult
         {
             Scenario = SimulationScenario.NormalTraffic, Execution = execution,
             Findings = [$"Generated {summary.Requests.Generated} requests; {summary.Requests.Succeeded} succeeded, {summary.Requests.TimedOut} timed out, and {summary.Requests.InFlight} remain in flight."],
-            NodeResults = topology.Components.Values.Select(c => NodeResult(c.Definition.NodeId, summary)).ToList(),
+            NodeResults = summary.Nodes,
             EdgeResults = topology.Routes.Select(r => new SimulationEdgeResult
             {
                 EdgeId = r.EdgeId, SourceNodeId = r.SourceNodeId, TargetNodeId = r.TargetNodeId,
-                Status = SimulationEdgeStatus.Healthy,
+                Status = topology.Components[r.SourceNodeId].IsAvailable && topology.Components[r.TargetNodeId].IsAvailable ? SimulationEdgeStatus.Healthy : SimulationEdgeStatus.Broken,
                 TrafficPerSecond = run.ElapsedMicroseconds == 0 ? 0 : (int)Math.Round(summary.Edges.FirstOrDefault(e => e.EdgeId == r.EdgeId)?.Calls * 1_000_000.0 / run.ElapsedMicroseconds ?? 0)
             }).ToList()
         };
-    }
-
-    private static SimulationNodeResult NodeResult(string id, SimulationMeasurements measurements)
-    {
-        var resources = measurements.Resources.Where(r => r.NodeId == id).ToArray();
-        var queued = resources.Sum(r => r.QueueDepth);
-        var load = resources.Length == 0 ? 0 : resources.Max(r => r.Active / (double)r.Capacity);
-        return new() { NodeId = id, Status = queued > 0 || load >= 1 ? SimulationNodeStatus.Saturated : SimulationNodeStatus.Online,
-            LoadPercentage = (int)Math.Round(load * 100), Message = $"{queued} waiting", Metrics = new() { ["queueDepth"] = queued } };
     }
 
     private static SimulationMeasurements Difference(SimulationMeasurements current, SimulationMeasurements? previous,
@@ -111,6 +106,16 @@ public sealed class SimulationRunner
     {
         var result = System.Text.Json.JsonSerializer.Deserialize<SimulationMeasurements>(System.Text.Json.JsonSerializer.Serialize(current))!;
         var r = result.Requests;
+        result.Cache.Hits -= previous?.Cache.Hits ?? 0;
+        result.Cache.Misses -= previous?.Cache.Misses ?? 0;
+        result.Cache.Evictions -= previous?.Cache.Evictions ?? 0;
+        result.Cache.Invalidations -= previous?.Cache.Invalidations ?? 0;
+        result.Jobs.Accepted -= previous?.Jobs.Accepted ?? 0;
+        result.Jobs.Completed -= previous?.Jobs.Completed ?? 0;
+        result.Jobs.DeadLettered -= previous?.Jobs.DeadLettered ?? 0;
+        result.Jobs.Redeliveries -= previous?.Jobs.Redeliveries ?? 0;
+        result.Jobs.Rejected -= previous?.Jobs.Rejected ?? 0;
+        result.Jobs.Lost -= previous?.Jobs.Lost ?? 0;
         var p = previous?.Requests ?? new SimulationRequestMetrics();
         r.Generated -= p.Generated; r.Succeeded -= p.Succeeded; r.ExplicitlyFailed -= p.ExplicitlyFailed; r.TimedOut -= p.TimedOut;
         r.DatabaseReadsCompleted -= p.DatabaseReadsCompleted; r.DatabaseWritesCompleted -= p.DatabaseWritesCompleted;
@@ -128,6 +133,7 @@ public sealed class SimulationRunner
             var resource = result.Resources[i];
             var old = previous?.Resources[i];
             resource.Rejected -= old?.Rejected ?? 0;
+            resource.UnavailableMicroseconds -= old?.UnavailableMicroseconds ?? 0;
             resource.UtilizationRatio = elapsed == 0 ? null : ((resource.UtilizationRatio ?? 0) * now - (old?.UtilizationRatio ?? 0) * start) / elapsed;
         }
         for (var i = 0; i < result.Edges.Count; i++)

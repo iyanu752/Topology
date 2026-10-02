@@ -26,6 +26,9 @@ public class SimulationMeasurements
     public SimulationRequestMetrics Requests { get; set; } = new();
     public List<SimulationResourceMetrics> Resources { get; set; } = [];
     public List<SimulationEdgeMetrics> Edges { get; set; } = [];
+    public SimulationCacheMetrics Cache { get; set; } = new();
+    public SimulationJobMetrics Jobs { get; set; } = new();
+    public List<SimulationNodeResult> Nodes { get; set; } = [];
 }
 
 public class SimulationRequestMetrics
@@ -50,7 +53,7 @@ public class SimulationLatencyMetrics
     public double? P99Ms { get; set; }
 }
 
-public enum SimulationResourceKind { ServiceExecution, DatabasePool, DatabaseConnections, DatabaseExecution }
+public enum SimulationResourceKind { ServiceExecution, DatabasePool, DatabaseConnections, DatabaseExecution, WorkerExecution }
 
 public class SimulationResourceMetrics
 {
@@ -64,6 +67,28 @@ public class SimulationResourceMetrics
     public long Rejected { get; set; }
     public double? UtilizationRatio { get; set; }
     public long UnavailableMicroseconds { get; set; }
+    public bool IsAvailable { get; set; } = true;
+}
+
+public class SimulationCacheMetrics
+{
+    public long Hits { get; set; }
+    public long Misses { get; set; }
+    public long Evictions { get; set; }
+    public long Invalidations { get; set; }
+    public int Entries { get; set; }
+}
+
+public class SimulationJobMetrics
+{
+    public long Accepted { get; set; }
+    public long Completed { get; set; }
+    public long DeadLettered { get; set; }
+    public long Redeliveries { get; set; }
+    public long Rejected { get; set; }
+    public long Lost { get; set; }
+    public int Waiting { get; set; }
+    public int Active { get; set; }
 }
 
 public class SimulationEdgeMetrics

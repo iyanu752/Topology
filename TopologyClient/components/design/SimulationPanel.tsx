@@ -1,118 +1,78 @@
 "use client";
 
 import { useState } from "react";
-import type { SimulationScenario } from "@/types";
+import type { SimulationConfiguration, SimulationResult } from "@/types";
+import { SimulationPlayback } from "./SimulationPlayback";
 
-export type SimulationPanelConfig = {
-  scenario: SimulationScenario;
-  trafficPerSecond: number;
-  readPercentage: number;
-  writePercentage: number;
-  hasCriticalWrites: boolean;
-};
+export type SimulationPanelConfig = SimulationConfiguration;
 
-type SimulationPanelProps = {
+type Props = {
   onRun: (config: SimulationPanelConfig) => void;
+  onCancel: () => void;
+  onExample: () => void;
+  busy: boolean;
+  error: string | null;
+  result: SimulationResult | null;
+  frame: number;
+  onFrame: (frame: number) => void;
 };
 
-const scenarios: Array<{ value: SimulationScenario; label: string }> = [
-  { value: "NormalTraffic", label: "Normal traffic" },
-  { value: "HighTraffic", label: "High traffic" },
-  { value: "DatabaseFailure", label: "Database failure" },
-  { value: "CacheFailure", label: "Cache failure" },
-  { value: "QueueBacklog", label: "Queue backlog" },
-  { value: "ExternalApiFailure", label: "External API failure" },
-  { value: "HighLatency", label: "High latency" },
-  { value: "ReadHeavyWorkload", label: "Read-heavy workload" },
-  { value: "WriteHeavyWorkload", label: "Write-heavy workload" },
-  { value: "SuddenUserGrowth", label: "Sudden user growth" }
-];
+export function SimulationPanel({ onRun, onCancel, onExample, busy, error, result, frame, onFrame }: Props) {
+  const [traffic, setTraffic] = useState(100);
+  const [duration, setDuration] = useState(10);
+  const [seed, setSeed] = useState(1);
+  const [reads, setReads] = useState(70);
+  const [timeout, setTimeoutMs] = useState(1000);
+  const [delay, setDelay] = useState(1);
+  const [serviceTime, setServiceTime] = useState(5);
+  const [serviceSlots, setServiceSlots] = useState(16);
+  const [pool, setPool] = useState(8);
+  const [dbSlots, setDbSlots] = useState(4);
+  const [readTime, setReadTime] = useState(10);
+  const [writeTime, setWriteTime] = useState(20);
+  const [queue, setQueue] = useState(100);
 
-export function SimulationPanel({ onRun }: SimulationPanelProps) {
-  const [scenario, setScenario] = useState<SimulationScenario>("HighTraffic");
-  const [trafficPerSecond, setTrafficPerSecond] = useState(1200);
-  const [readPercentage, setReadPercentage] = useState(70);
-  const writePercentage = 100 - readPercentage;
-  const [hasCriticalWrites, setHasCriticalWrites] = useState(false);
+  function field(label: string, value: number, set: (value: number) => void, min: number, max: number, step = 1) {
+    return <label className="block text-xs text-zinc-400">{label}<input aria-label={label} type="number" required min={min} max={max} step={step} value={Number.isNaN(value) ? "" : value}
+      onChange={e => set(e.target.valueAsNumber)} className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 p-2 text-zinc-100" /></label>;
+  }
 
-  return (
-    <section
-      data-canvas-interactive="true"
-      className="fixed left-4 top-4 z-30 w-[340px] max-w-[calc(100vw-2rem)] rounded-lg border border-zinc-800 bg-zinc-950/95 p-4 text-zinc-100 shadow-2xl shadow-black/40 backdrop-blur md:left-24"
-      aria-label="Simulation panel"
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-semibold uppercase">Simulation</h2>
-          <p className="mt-1 text-xs text-zinc-500">{trafficPerSecond.toLocaleString()} req/s</p>
+  return <section data-canvas-interactive="true" aria-label="Simulation panel"
+    className="fixed left-4 top-4 z-30 max-h-[calc(100vh-2rem)] w-[340px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950/95 p-4 text-zinc-100 shadow-2xl md:left-24">
+    <h2 className="text-sm font-semibold">Simulation</h2>
+    <p className="mt-1 text-xs text-zinc-400">Connect one client → service → database. Each service and database needs one replica.</p>
+    <button type="button" disabled={busy} onClick={onExample} className="my-2 text-xs text-emerald-300 underline disabled:opacity-50">Add a sample to an empty canvas</button>
+    <form onSubmit={e => { e.preventDefault(); onRun({ durationSeconds: duration, randomSeed: seed, metricIntervalMs: 250,
+      workload: { requestsPerSecond: traffic, readPercentage: reads, writePercentage: 100 - reads, clientTimeoutMs: timeout },
+      defaults: { networkDelayMs: delay, serviceProcessingMs: serviceTime, serviceConcurrency: serviceSlots,
+        databasePoolSize: pool, databaseConcurrency: dbSlots, databaseReadProcessingMs: readTime, databaseWriteProcessingMs: writeTime,
+        serviceQueueCapacity: queue, databasePoolQueueCapacity: queue, databaseQueueCapacity: queue }
+    }); }}>
+      <fieldset disabled={busy} className="space-y-3 disabled:opacity-60">
+        <div className="grid grid-cols-2 gap-2">
+          {field("Requests / second", traffic, setTraffic, 0, 100000)}
+          {field("Duration (seconds)", duration, setDuration, 1, 3600)}
+          {field("Random seed", seed, setSeed, -2147483648, 2147483647)}
+          {field("Reads (%)", reads, setReads, 0, 100)}
+          {field("Timeout (ms)", timeout, setTimeoutMs, 1, 3600000)}
+          {field("Network delay (ms)", delay, setDelay, 0, 3600000, .1)}
         </div>
-        <button
-          type="button"
-          onClick={() => onRun({ scenario, trafficPerSecond, readPercentage, writePercentage, hasCriticalWrites })}
-          className="rounded-md border border-emerald-400/40 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/20 focus:outline-none focus:ring-2 focus:ring-emerald-400"
-        >
-          Run
-        </button>
-      </div>
-
-      <div className="mt-4 space-y-4">
-        <label className="block">
-          <span className="text-[11px] font-semibold uppercase text-zinc-500">Scenario</span>
-          <select
-            value={scenario}
-            onChange={(event) => setScenario(event.target.value as SimulationScenario)}
-            className="mt-2 h-10 w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 text-sm text-zinc-100 outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-400/30"
-          >
-            {scenarios.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="block">
-          <span className="flex items-center justify-between text-[11px] font-semibold uppercase text-zinc-500">
-            <span>Traffic</span>
-            <span>{trafficPerSecond.toLocaleString()} req/s</span>
-          </span>
-          <input
-            type="range"
-            min="10"
-            max="20000"
-            step="10"
-            value={trafficPerSecond}
-            onChange={(event) => setTrafficPerSecond(Number(event.target.value))}
-            className="mt-3 w-full accent-emerald-300"
-          />
-        </label>
-
-        <label className="block">
-          <span className="flex items-center justify-between text-[11px] font-semibold uppercase text-zinc-500">
-            <span>Read / write</span>
-            <span>{readPercentage}% / {writePercentage}%</span>
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="100"
-            step="5"
-            value={readPercentage}
-            onChange={(event) => setReadPercentage(Number(event.target.value))}
-            className="mt-3 w-full accent-emerald-300"
-          />
-        </label>
-
-        <label className="flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2">
-          <span className="text-sm text-zinc-300">Critical writes</span>
-          <input
-            type="checkbox"
-            checked={hasCriticalWrites}
-            onChange={(event) => setHasCriticalWrites(event.target.checked)}
-            className="h-4 w-4 accent-emerald-300"
-          />
-        </label>
-      </div>
-    </section>
-  );
+        <details><summary className="cursor-pointer text-xs text-zinc-300">Service and database settings</summary>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            {field("Service time (ms)", serviceTime, setServiceTime, .1, 3600000, .1)}
+            {field("Service slots", serviceSlots, setServiceSlots, 1, 100000)}
+            {field("Pool connections", pool, setPool, 1, 100000)}
+            {field("Database slots", dbSlots, setDbSlots, 1, 100000)}
+            {field("Read time (ms)", readTime, setReadTime, .1, 3600000, .1)}
+            {field("Write time (ms)", writeTime, setWriteTime, .1, 3600000, .1)}
+            {field("Waiting slots per queue", queue, setQueue, 0, 100000)}
+          </div>
+        </details>
+        <button className="w-full rounded bg-emerald-400 px-3 py-2 text-sm font-semibold text-zinc-950" type="submit">{busy ? "Running…" : "Run simulation"}</button>
+      </fieldset>
+    </form>
+    {busy && <button type="button" onClick={onCancel} className="mt-2 w-full text-sm text-zinc-300">Cancel run</button>}
+    {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
+    {result?.execution && <SimulationPlayback execution={result.execution} frame={frame} onFrame={onFrame} />}
+  </section>;
 }

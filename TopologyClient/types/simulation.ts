@@ -7,6 +7,7 @@ export type SimulationConfiguration = {
   defaults?: SimulationBehaviorDefaults;
   limits?: SimulationExecutionLimits;
   scheduledEvents?: ScheduledSimulationEvent[];
+  edgeDelayMs?: Record<string, number>;
 };
 
 export type SimulationWorkload = {

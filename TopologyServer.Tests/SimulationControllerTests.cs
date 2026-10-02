@@ -9,7 +9,36 @@ namespace TopologyServer.Tests;
 public sealed class SimulationControllerTests : IClassFixture<TestWebApplicationFactory>
 {
     [Fact]
-    public async Task RunSimulation_WithNewConfiguration_DoesNotSilentlyUseLegacyEvaluator()
+    public async Task RunSimulation_WithConfiguration_ReturnsMeasuredResults()
+    {
+        ResetDesignServiceFlags();
+        _factory.DesignService.GetResult = SimulationRunnerTests.Design();
+        using var client = CreateAuthenticatedClient();
+        var response = await client.PostAsJsonAsync("/api/rooms/room-1/simulations/run", new RunSimulationDto
+        {
+            Configuration = new() { DurationSeconds = 1, Workload = new() { RequestsPerSecond = 1, ReadPercentage = 100 } }
+        }, JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<SimulationResult>(JsonOptions);
+        Assert.Equal(19, result!.Execution!.Summary.Requests.SuccessfulLatency.P95Ms);
+    }
+
+    [Fact]
+    public async Task RunSimulation_WithConfiguration_StillChecksRoomAccess()
+    {
+        ResetDesignServiceFlags();
+        _factory.DesignService.ThrowsUnauthorized = true;
+        try
+        {
+            using var client = CreateAuthenticatedClient();
+            var response = await client.PostAsJsonAsync("/api/rooms/room-1/simulations/run", new RunSimulationDto { Configuration = new() }, JsonOptions);
+            Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        }
+        finally { ResetDesignServiceFlags(); }
+    }
+
+    [Fact]
+    public async Task RunSimulation_WithNewConfiguration_ValidatesTopology()
     {
         ResetDesignServiceWithDatabase(new Dictionary<string, object>());
         using var client = CreateAuthenticatedClient();
@@ -17,7 +46,7 @@ public sealed class SimulationControllerTests : IClassFixture<TestWebApplication
             new RunSimulationDto { Configuration = new SimulationConfiguration() }, JsonOptions);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("not available yet", await response.Content.ReadAsStringAsync());
+        Assert.Contains("Client", await response.Content.ReadAsStringAsync());
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)

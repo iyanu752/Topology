@@ -18,12 +18,20 @@ public class SimulationController : ControllerBase
     }
 
     [HttpPost("run")]
-    public async Task<IActionResult> RunSimulation(string roomId, RunSimulationDto runSimulationDto)
+    public async Task<IActionResult> RunSimulation(string roomId, RunSimulationDto runSimulationDto, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await _simulationService.RunSimulationAsync(User, roomId, runSimulationDto);
+            var result = await _simulationService.RunSimulationAsync(User, roomId, runSimulationDto, cancellationToken);
             return Ok(result);
+        }
+        catch (SimulationCompilationException exception)
+        {
+            return BadRequest(new { message = exception.Message, issues = exception.Issues });
+        }
+        catch (ArgumentException exception)
+        {
+            return BadRequest(new { message = exception.Message });
         }
         catch (KeyNotFoundException)
         {

@@ -1,6 +1,6 @@
 namespace TopologyServer;
 
-public enum SimulationEventPriority { ScenarioChange, Deadline, Ordinary }
+public enum SimulationEventPriority { ScenarioChange, Deadline, Ordinary, Observation }
 
 public sealed record SimulationEngineRunResult(
     string EngineVersion,

@@ -18,7 +18,7 @@ public class SimulationService : ISimulationService
         _logger = logger;
     }
 
-    public async Task<SimulationResult> RunSimulationAsync(ClaimsPrincipal principal, string roomId, RunSimulationDto runSimulationDto)
+    public async Task<SimulationResult> RunSimulationAsync(ClaimsPrincipal principal, string roomId, RunSimulationDto runSimulationDto, CancellationToken cancellationToken = default)
     {
         var design = await _designService.GetDesignAsync(principal, roomId);
         if (design == null)
@@ -29,7 +29,9 @@ public class SimulationService : ISimulationService
 
         if (runSimulationDto.Configuration != null)
         {
-            throw new NotSupportedException("The event simulation engine is not available yet. Omit configuration to use the existing evaluator.");
+            if (runSimulationDto.Scenario != SimulationScenario.NormalTraffic && runSimulationDto.Scenario != SimulationScenario.HighTraffic)
+                throw new ArgumentException("The event engine currently supports traffic workloads only. Scheduled failure scenarios are not supported yet.");
+            return new SimulationRunner().Run(design, runSimulationDto.Configuration, cancellationToken);
         }
 
         if (!_handlers.TryGetValue(runSimulationDto.Scenario, out var handler))

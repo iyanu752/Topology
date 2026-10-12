@@ -11,6 +11,11 @@ export type SimulationConfiguration = {
   routing?: { policy?: "RoundRobin" | "LeastConnections"; healthCheckIntervalMs?: number; detectionDelayMs?: number };
   cache?: { capacity?: number; ttlMs?: number; lookupMs?: number };
   queue?: { capacity?: number; workerConcurrency?: number; workerProcessingMs?: number; maxDeliveries?: number; retryDelayMs?: number; acknowledgementTimeoutMs?: number };
+  gateway?: { processingMs?: number; concurrency?: number; queueCapacity?: number; rateLimitPerSecond?: number };
+  externalApi?: { latencyMs?: number; concurrency?: number; queueCapacity?: number; rateLimitPerMinute?: number; reliabilityPercentage?: number };
+  retries?: { maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number; jitterPercentage?: number; retryWrites?: boolean };
+  circuitBreaker?: { enabled?: boolean; failureThreshold?: number; openDurationMs?: number };
+  databaseReplication?: { readPreference?: "Primary" | "PreferReadReplica"; lagMs?: number; detectionDelayMs?: number; promotionDelayMs?: number; failoverEnabled?: boolean };
 };
 
 export type SimulationWorkload = {
@@ -86,6 +91,11 @@ export type SimulationMeasurements = {
   nodes: SimulationNodeResult[];
   cache: { hits: number; misses: number; evictions: number; invalidations: number; entries: number };
   jobs: { accepted: number; completed: number; deadLettered: number; redeliveries: number; rejected: number; lost: number; waiting: number; active: number };
+  endpoints: { nodeId: string; received: number; completed: number; rateLimited: number; saturated: number; failed: number }[];
+  retries: { attempts: number; retryAttempts: number; circuitRejected: number; circuitOpened: number; failuresByCause: Record<string, number>;
+    circuits: { scope: string; state: "Closed" | "Open" | "HalfOpen"; consecutiveFailures: number }[] };
+  replication: { primaryReplicaId: string | null; promotions: number; staleReads: number; rolledBackKeys: number;
+    replicas: { replicaId: string; role: "Primary" | "Standby" | "ReadReplica"; isAvailable: boolean; appliedVersion: number }[] };
 };
 
 export type SimulationRequestMetrics = {
@@ -111,7 +121,7 @@ export type SimulationLatencyMetrics = {
 export type SimulationResourceMetrics = {
   nodeId: string;
   replicaId: string | null;
-  kind: "ServiceExecution" | "DatabasePool" | "DatabaseConnections" | "DatabaseExecution" | "WorkerExecution";
+  kind: "ServiceExecution" | "DatabasePool" | "DatabaseConnections" | "DatabaseExecution" | "WorkerExecution" | "GatewayExecution" | "ExternalApiExecution";
   capacity: number;
   active: number;
   queueDepth: number;

@@ -46,11 +46,14 @@ public sealed class SimulationTopologyCompiler
             .ToDictionary(g => g.Key, g => g.OrderBy(e => e.Id, StringComparer.Ordinal).ToArray(), StringComparer.Ordinal);
         var client = clients[0];
         var entry = client;
-        Node? loadBalancer = null;
-        if (outgoing.TryGetValue(client.Id, out var entryEdges) && entryEdges.Length == 1 && nodes[entryEdges[0].TargetNodeId].Type == ComponentType.LoadBalancer)
+        var ingress = new List<Node>();
+        while (outgoing.TryGetValue(entry.Id, out var entryEdges) && entryEdges.Length == 1 &&
+            nodes[entryEdges[0].TargetNodeId].Type is ComponentType.LoadBalancer or ComponentType.ApiGateway)
         {
-            loadBalancer = nodes[entryEdges[0].TargetNodeId];
-            entry = loadBalancer;
+            var next = nodes[entryEdges[0].TargetNodeId];
+            if (ingress.Any(n => n.Type == next.Type)) throw Failure("UnsupportedRoute", "The entry path supports one gateway and one load balancer.", next.Id);
+            ingress.Add(next);
+            entry = next;
         }
         var clientEdge = RequireRoute(entry, ComponentType.Service, outgoing, nodes);
         var service = nodes[clientEdge.TargetNodeId];
@@ -64,16 +67,19 @@ public sealed class SimulationTopologyCompiler
             throw Failure("UnsupportedRoute", "The Database must end the request path. Remove its outgoing calls; responses do not need reverse edges.", database.Id, databaseEdges[0].Id);
 
         var active = new List<Node> { client, service, database };
-        if (loadBalancer != null) active.Add(loadBalancer);
+        active.AddRange(ingress);
         Node? cache = null;
         Node? queue = null;
+        Node? externalApi = null;
         foreach (var edge in dependencies.Where(e => e != serviceEdge))
         {
             var dependency = nodes[edge.TargetNodeId];
             if (dependency.Type == ComponentType.Cache && cache == null) { cache = dependency; active.Add(cache); }
             else if (dependency.Type == ComponentType.Queue && queue == null) { queue = dependency; active.Add(queue); }
-            else throw Failure("AmbiguousRoute", "The service supports one database, one cache, and one queue dependency.", service.Id, edge.Id);
+            else if (dependency.Type == ComponentType.ExternalApi && externalApi == null) { externalApi = dependency; active.Add(dependency); }
+            else throw Failure("AmbiguousRoute", "The service supports one database, cache, queue, and external API dependency each.", service.Id, edge.Id);
         }
+        if (externalApi != null && outgoing.ContainsKey(externalApi.Id)) throw Failure("UnsupportedRoute", "External API responses return to the service; remove outgoing API edges.", externalApi.Id);
         if (cache != null && outgoing.ContainsKey(cache.Id)) throw Failure("UnsupportedRoute", "Cache responses return to the service; remove outgoing cache edges.", cache.Id);
         if (queue != null)
         {
@@ -113,11 +119,11 @@ public sealed class SimulationTopologyCompiler
             else
             {
                 modeled.Add("replicas");
-                ValidateInteger(node, properties, "replicas", 1, node.Type == ComponentType.Service ? 100 : 1);
+                ValidateInteger(node, properties, "replicas", 1, node.Type is ComponentType.Service or ComponentType.Database ? 100 : 1);
                 if (node.Type == ComponentType.Database)
                 {
                     modeled.UnionWith(["readReplicas", "maxConnections"]);
-                    ValidateInteger(node, properties, "readReplicas", 0, 0);
+                    ValidateInteger(node, properties, "readReplicas", 0, 100);
                     ValidateInteger(node, properties, "maxConnections", 1, 1_000_000);
                 }
             }

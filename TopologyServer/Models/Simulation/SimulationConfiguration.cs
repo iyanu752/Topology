@@ -12,6 +12,11 @@ public class SimulationConfiguration
     public SimulationRoutingSettings Routing { get; set; } = new();
     public SimulationCacheSettings Cache { get; set; } = new();
     public SimulationQueueSettings Queue { get; set; } = new();
+    public SimulationGatewaySettings Gateway { get; set; } = new();
+    public SimulationExternalApiSettings ExternalApi { get; set; } = new();
+    public SimulationRetrySettings Retries { get; set; } = new();
+    public SimulationCircuitBreakerSettings CircuitBreaker { get; set; } = new();
+    public SimulationDatabaseReplicationSettings DatabaseReplication { get; set; } = new();
 }
 
 public class SimulationWorkload
@@ -88,4 +93,48 @@ public class SimulationQueueSettings
     public int MaxDeliveries { get; set; } = 3;
     public int RetryDelayMs { get; set; } = 100;
     public int AcknowledgementTimeoutMs { get; set; } = 30000;
+}
+
+public class SimulationGatewaySettings
+{
+    public double ProcessingMs { get; set; } = 1;
+    public int Concurrency { get; set; } = 32;
+    public int QueueCapacity { get; set; } = 100;
+    public int RateLimitPerSecond { get; set; } = 1000;
+}
+
+public class SimulationExternalApiSettings
+{
+    public double LatencyMs { get; set; } = 250;
+    public int Concurrency { get; set; } = 10;
+    public int QueueCapacity { get; set; } = 100;
+    public int RateLimitPerMinute { get; set; } = 60;
+    public int ReliabilityPercentage { get; set; } = 99;
+}
+
+public class SimulationRetrySettings
+{
+    public int MaxAttempts { get; set; } = 1;
+    public double BaseDelayMs { get; set; } = 100;
+    public double MaxDelayMs { get; set; } = 1000;
+    public int JitterPercentage { get; set; }
+    public bool RetryWrites { get; set; }
+}
+
+public class SimulationCircuitBreakerSettings
+{
+    public bool Enabled { get; set; }
+    public int FailureThreshold { get; set; } = 3;
+    public double OpenDurationMs { get; set; } = 500;
+}
+
+public enum SimulationReadPreference { Primary, PreferReadReplica }
+
+public class SimulationDatabaseReplicationSettings
+{
+    public SimulationReadPreference ReadPreference { get; set; }
+    public double LagMs { get; set; } = 100;
+    public double DetectionDelayMs { get; set; } = 100;
+    public double PromotionDelayMs { get; set; } = 200;
+    public bool FailoverEnabled { get; set; }
 }

@@ -668,7 +668,7 @@ export function DesignCanvas() {
       ) : null}
 
       <SimulationPanel onRun={runSimulation} busy={simulationBusy} error={simulationError} result={simulationResult}
-        targets={nodes.map(node => ({ id: node.id, label: String(node.configuration.displayName || node.component.name), replicas: Number(node.configuration.replicas ?? 1) }))}
+        targets={nodes.map(node => ({ id: node.id, label: String(node.configuration.displayName || node.component.name), replicas: Number(node.configuration.replicas ?? 1) + Number(node.configuration.readReplicas ?? 0) }))}
         frame={simulationFrame} onFrame={setSimulationFrame} onExample={addSimulationExample}
         onCancel={() => { simulationAbort.current?.abort(); setSimulationBusy(false); }} />
 

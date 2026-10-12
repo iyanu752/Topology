@@ -32,6 +32,23 @@ public sealed class CompiledTopology
     public SimulationRuntimeComponent Client { get; }
     public SimulationRuntimeComponent Service { get; }
     public SimulationRuntimeComponent Database { get; }
+    public SimulationRuntimeComponent? Gateway => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.ApiGateway);
+    public SimulationRuntimeComponent? ExternalApi => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.ExternalApi);
+    public IReadOnlyList<SimulationRoute> IngressRoutes
+    {
+        get
+        {
+            var path = new List<SimulationRoute>();
+            var node = Client.Definition.NodeId;
+            while (node != Service.Definition.NodeId)
+            {
+                var route = Routes.Single(r => r.SourceNodeId == node);
+                path.Add(route);
+                node = route.TargetNodeId;
+            }
+            return path;
+        }
+    }
     public SimulationRuntimeComponent? LoadBalancer => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.LoadBalancer);
     public SimulationRuntimeComponent? Cache => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.Cache);
     public SimulationRuntimeComponent? Queue => Components.Values.SingleOrDefault(c => c.Definition.Type == ComponentType.Queue);

@@ -139,7 +139,7 @@ public class SimulationTopologyCompilerTests
     [Theory]
     [InlineData(1, "replicas", "101")]
     [InlineData(2, "replicas", "0")]
-    [InlineData(2, "readReplicas", "1")]
+    [InlineData(2, "readReplicas", "101")]
     [InlineData(2, "maxConnections", "1.5")]
     [InlineData(2, "maxConnections", "bad")]
     [InlineData(0, "requestsPerSecond", "-1")]

@@ -16,7 +16,7 @@ public sealed class SimulationRunner
         var resources = workflow.Resources;
         SimulationMeasurements? previous = null;
         long previousTime = 0;
-        var recordsPerSnapshot = 3 + resources.Count + topology.Routes.Count + topology.Components.Count;
+        var recordsPerSnapshot = 8 + resources.Count * 3 + topology.Routes.Count + topology.Components.Count;
         var finalReserved = engine.TryRetainRecords(recordsPerSnapshot * 2);
 
         SimulationMeasurements Measure()
@@ -42,7 +42,8 @@ public sealed class SimulationRunner
                         .ToDictionary(g => g.Key, g => (long)g.Count())
                 },
                 Resources = resources.Select(r => r.Snapshot()).ToList(), Edges = network.Snapshot(),
-                Cache = workflow.Cache.Snapshot(), Jobs = workflow.Jobs.Snapshot(), Nodes = workflow.NodeSnapshots()
+                Cache = workflow.Cache.Snapshot(), Jobs = workflow.Jobs.Snapshot(), Nodes = workflow.NodeSnapshots(),
+                Endpoints = workflow.EndpointSnapshots(), Retries = workflow.Resilience.Snapshot(), Replication = workflow.Database.Snapshot()
             };
         }
 
@@ -81,7 +82,14 @@ public sealed class SimulationRunner
             StopReason = run.StopReason, ElapsedMicroseconds = run.ElapsedMicroseconds, ProcessedEvents = run.ProcessedEvents,
             Summary = summary, Timeline = timeline, Assumptions = topology.Assumptions.Concat(new[] {
                 "Traffic ramps change in one-second steps, with a final step at the specified end time.",
-                "Service pools hold their slots while waiting for the shared database connection limit.",
+                "Service pools hold their slots while waiting for the selected database replica's connection limit.",
+                "Gateways use fixed one-second rate windows; external APIs use fixed one-minute windows. Zero disables a rate limit. Saturated requests also consume rate allowance.",
+                "An external API dependency runs before cache, database, or queue work. Simulation settings control gateway and external API behavior; their saved metadata is not used.",
+                "Retries apply to database and external API calls, hold service slots, and share the original deadline. Rate-limit responses are not retried. Write retries are disabled by default and may duplicate effects when enabled.",
+                "Circuit breakers belong to each service or worker replica and dependency. One probe is allowed after the open duration. Only transient dependency failures open a circuit.",
+                "Database replicas includes the primary and promotable standbys; readReplicas adds read-only instances. Reads prefer available read-only replicas only when configured; otherwise they use the primary.",
+                "Writes acknowledge primary completion without waiting for replication. Reads observe a key's version at completion; replica reads can be stale and stale reads do not populate cache.",
+                "Failover promotes the freshest available standby after detection and promotion delays. Read-only replicas are never promoted. Recent keys can roll back; the original primary returns as a standby without automatic failback.",
                 "Cache entries use LRU eviction and start empty. Cache outages flush entries; reads fall back to the database.",
                 "The job queue is volatile: queue failure loses waiting and unacknowledged jobs. Active work on healthy workers may still finish.",
                 "Job delivery is at least once. A write can finish after its acknowledgement times out, so redelivery may repeat it."
@@ -106,6 +114,25 @@ public sealed class SimulationRunner
     {
         var result = System.Text.Json.JsonSerializer.Deserialize<SimulationMeasurements>(System.Text.Json.JsonSerializer.Serialize(current))!;
         var r = result.Requests;
+        result.Retries.Attempts -= previous?.Retries.Attempts ?? 0;
+        result.Retries.RetryAttempts -= previous?.Retries.RetryAttempts ?? 0;
+        result.Retries.CircuitRejected -= previous?.Retries.CircuitRejected ?? 0;
+        result.Retries.CircuitOpened -= previous?.Retries.CircuitOpened ?? 0;
+        foreach (var key in result.Retries.FailuresByCause.Keys.ToArray())
+            result.Retries.FailuresByCause[key] -= previous?.Retries.FailuresByCause.GetValueOrDefault(key) ?? 0;
+        result.Replication.Promotions -= previous?.Replication.Promotions ?? 0;
+        result.Replication.StaleReads -= previous?.Replication.StaleReads ?? 0;
+        result.Replication.RolledBackKeys -= previous?.Replication.RolledBackKeys ?? 0;
+        for (var i = 0; i < result.Endpoints.Count; i++)
+        {
+            var endpoint = result.Endpoints[i];
+            var old = previous?.Endpoints[i];
+            endpoint.Received -= old?.Received ?? 0;
+            endpoint.Completed -= old?.Completed ?? 0;
+            endpoint.RateLimited -= old?.RateLimited ?? 0;
+            endpoint.Saturated -= old?.Saturated ?? 0;
+            endpoint.Failed -= old?.Failed ?? 0;
+        }
         result.Cache.Hits -= previous?.Cache.Hits ?? 0;
         result.Cache.Misses -= previous?.Cache.Misses ?? 0;
         result.Cache.Evictions -= previous?.Cache.Evictions ?? 0;

@@ -29,6 +29,9 @@ public class SimulationMeasurements
     public SimulationCacheMetrics Cache { get; set; } = new();
     public SimulationJobMetrics Jobs { get; set; } = new();
     public List<SimulationNodeResult> Nodes { get; set; } = [];
+    public List<SimulationEndpointMetrics> Endpoints { get; set; } = [];
+    public SimulationRetryMetrics Retries { get; set; } = new();
+    public SimulationReplicationMetrics Replication { get; set; } = new();
 }
 
 public class SimulationRequestMetrics
@@ -53,7 +56,52 @@ public class SimulationLatencyMetrics
     public double? P99Ms { get; set; }
 }
 
-public enum SimulationResourceKind { ServiceExecution, DatabasePool, DatabaseConnections, DatabaseExecution, WorkerExecution }
+public enum SimulationResourceKind { ServiceExecution, DatabasePool, DatabaseConnections, DatabaseExecution, WorkerExecution, GatewayExecution, ExternalApiExecution }
+
+public class SimulationEndpointMetrics
+{
+    public required string NodeId { get; set; }
+    public long Received { get; set; }
+    public long Completed { get; set; }
+    public long RateLimited { get; set; }
+    public long Saturated { get; set; }
+    public long Failed { get; set; }
+}
+
+public class SimulationRetryMetrics
+{
+    public long Attempts { get; set; }
+    public long RetryAttempts { get; set; }
+    public long CircuitRejected { get; set; }
+    public long CircuitOpened { get; set; }
+    public Dictionary<string, long> FailuresByCause { get; set; } = [];
+    public List<SimulationCircuitMetrics> Circuits { get; set; } = [];
+}
+
+public enum SimulationCircuitState { Closed, Open, HalfOpen }
+public class SimulationCircuitMetrics
+{
+    public required string Scope { get; set; }
+    public SimulationCircuitState State { get; set; }
+    public int ConsecutiveFailures { get; set; }
+}
+
+public class SimulationReplicationMetrics
+{
+    public string? PrimaryReplicaId { get; set; }
+    public long Promotions { get; set; }
+    public long StaleReads { get; set; }
+    public long RolledBackKeys { get; set; }
+    public List<SimulationDatabaseReplicaMetrics> Replicas { get; set; } = [];
+}
+
+public class SimulationDatabaseReplicaMetrics
+{
+    public required string ReplicaId { get; set; }
+    public required string Role { get; set; }
+    public bool IsAvailable { get; set; }
+    public long AppliedVersion { get; set; }
+}
 
 public class SimulationResourceMetrics
 {

@@ -19,8 +19,6 @@ public sealed class SimulationWorkflow
         public Replica Replica { get; } = replica;
         public Action<string?> Reply { get; } = reply;
         public bool ServiceDone { get; set; }
-        public bool DatabaseArrived { get; set; }
-        public bool DatabaseDone { get; set; }
         public long CacheVersion { get; set; }
         public long CacheGeneration { get; set; }
     }
@@ -33,27 +31,36 @@ public sealed class SimulationWorkflow
     private readonly List<Replica> _services = [];
     private readonly List<Replica> _workers = [];
     private readonly Dictionary<long, Work> _work = [];
-    private readonly Dictionary<long, SimulationRequest> _atLoadBalancer = [];
-    private readonly SimulationResource _database;
-    private readonly SimulationResource _connections;
+    private readonly Dictionary<long, (SimulationRequest Request, int Depth)> _ingress = [];
+    private readonly Dictionary<long, int> _returning = [];
+    private readonly SimulationEndpoint? _gateway;
+    private readonly SimulationEndpoint? _external;
+    public SimulationDatabaseCluster Database { get; }
+    public SimulationResilience Resilience { get; }
     private int _roundRobin;
     public List<SimulationResource> Resources { get; } = [];
     public List<SimulationStateTransition> Transitions { get; } = [];
     public SimulationCache Cache { get; }
     public SimulationJobQueue Jobs { get; }
-    public long ReadsCompleted { get; private set; }
-    public long WritesCompleted { get; private set; }
+    public long ReadsCompleted => Database.ReadsCompleted;
+    public long WritesCompleted => Database.WritesCompleted;
+    public List<SimulationEndpointMetrics> EndpointSnapshots() => new[] { _gateway, _external }.OfType<SimulationEndpoint>().Select(e => e.Snapshot()).ToList();
 
     public SimulationWorkflow(SimulationEngine engine, CompiledTopology topology, SimulationConfiguration config, SimulationNetwork network, SimulationClient client)
     {
         _engine = engine; _topology = topology; _config = config; _network = network; _client = client;
         Cache = new(engine, config.Cache);
         Jobs = new(engine, config.Queue);
-        _database = new(engine, topology.Database.Definition.NodeId, SimulationResourceKind.DatabaseExecution, config.Defaults.DatabaseConcurrency, config.Defaults.DatabaseQueueCapacity, $"{topology.Database.Definition.NodeId}:1");
-        _connections = new(engine, topology.Database.Definition.NodeId, SimulationResourceKind.DatabaseConnections, config.Defaults.DatabaseMaxConnections, 100000);
+        Database = new(engine, topology, config, network);
+        Database.OnWriteCommitted = Cache.Invalidate;
+        Database.OnPromoted = () => { Cache.SetAvailable(false); Cache.SetAvailable(_topology.Cache?.IsAvailable ?? true); };
+        Database.OnAvailabilityChanged = (id, before, after) => Transition(topology.Database.Definition.NodeId, id, before, after);
+        Resilience = new(engine, config.Retries, config.CircuitBreaker);
+        if (topology.Gateway != null) { _gateway = new(engine, topology.Gateway.Definition.NodeId, true, config); Resources.Add(_gateway.Resource); }
+        if (topology.ExternalApi != null) { _external = new(engine, topology.ExternalApi.Definition.NodeId, false, config); Resources.Add(_external.Resource); }
         AddReplicas(topology.Service, _services, false);
         if (topology.Worker != null) AddReplicas(topology.Worker, _workers, true);
-        Resources.Add(_connections); Resources.Add(_database);
+        Resources.AddRange(Database.Resources);
         Jobs.CanDeliver = () => _workers.Any(r => r.Available && r.Execution.Active < config.Queue.WorkerConcurrency);
         Jobs.Deliver = (request, done) =>
         {
@@ -111,35 +118,58 @@ public sealed class SimulationWorkflow
 
     private void SendFromClient(SimulationRequest request)
     {
-        var entry = _topology.LoadBalancer ?? _topology.Service;
-        _network.Send(_topology.Client.Definition.NodeId, entry.Definition.NodeId, false, () =>
+        Forward(request, 0);
+    }
+
+    private void Forward(SimulationRequest request, int index)
+    {
+        if (!request.IsRunnable || _returning.ContainsKey(request.Id)) return;
+        var path = _topology.IngressRoutes;
+        var route = path[index];
+        _network.Send(route.SourceNodeId, route.TargetNodeId, false, () =>
         {
-            if (!request.IsPending) return;
-            if (!entry.IsAvailable) { ReturnToClient(request, "EntryUnavailable", false); return; }
-            if (_topology.LoadBalancer != null) _atLoadBalancer[request.Id] = request;
+            if (!request.IsRunnable || _returning.ContainsKey(request.Id)) return;
+            _ingress[request.Id] = (request, index + 1);
+            var entry = _topology.Components[route.TargetNodeId];
+            if (!entry.IsAvailable) { ReturnToClient(request, "EntryUnavailable"); return; }
+            if (entry == _topology.Gateway)
+            {
+                _gateway!.Execute(request, error => { if (error != null) ReturnToClient(request, error); else Forward(request, index + 1); });
+                return;
+            }
+            if (entry == _topology.LoadBalancer) { Forward(request, index + 1); return; }
             var candidates = _services.Where(r => _topology.LoadBalancer == null ? r.Available : r.Healthy).ToArray();
-            if (candidates.Length == 0) { ReturnToClient(request, "NoHealthyReplica", false); return; }
+            if (candidates.Length == 0) { ReturnToClient(request, "NoHealthyReplica"); return; }
             var replica = _config.Routing.Policy == SimulationRoutingPolicy.LeastConnections
                 ? candidates.MinBy(r => r.Execution.Active + r.Execution.Snapshot().QueueDepth)!
                 : candidates[_roundRobin++ % candidates.Length];
-            if (_topology.LoadBalancer == null) Begin(request, replica, error => ReturnToClient(request, error, false), false);
-            else _network.Send(entry.Definition.NodeId, replica.NodeId, false,
-                () => Begin(request, replica, error => ReturnToClient(request, error, true), false));
+            Begin(request, replica, error => ReturnToClient(request, error), false);
         });
     }
 
-    private void ReturnToClient(SimulationRequest request, string? error, bool fromService)
+    private void ReturnToClient(SimulationRequest request, string? error, bool interrupted = false)
     {
-        void Return()
+        if (!_ingress.TryGetValue(request.Id, out var state) || !interrupted && _returning.ContainsKey(request.Id)) return;
+        var version = _returning.GetValueOrDefault(request.Id) + 1;
+        _returning[request.Id] = version;
+        var path = _topology.IngressRoutes;
+        void Return(int depth)
         {
-            _atLoadBalancer.Remove(request.Id);
-            _network.Send(_topology.Client.Definition.NodeId, (_topology.LoadBalancer ?? _topology.Service).Definition.NodeId, true,
-                () => { _client.Receive(request, error); if (error != null) Cancel(request); });
+            if (!request.IsPending || _returning.GetValueOrDefault(request.Id) != version) return;
+            if (depth == 0)
+            {
+                _ingress.Remove(request.Id); _returning.Remove(request.Id);
+                _client.Receive(request, error);
+                if (error != null) Cancel(request);
+                return;
+            }
+            var route = path[depth - 1];
+            _network.Send(route.SourceNodeId, route.TargetNodeId, true, () =>
+            {
+                if (depth == 1 || _topology.Components[route.SourceNodeId].IsAvailable) Return(depth - 1);
+            });
         }
-        if (_topology.LoadBalancer != null && fromService)
-            _network.Send(_topology.LoadBalancer.Definition.NodeId, _topology.Service.Definition.NodeId, true,
-                () => { if (_topology.LoadBalancer.IsAvailable && _atLoadBalancer.ContainsKey(request.Id)) Return(); });
-        else Return();
+        Return(state.Depth);
     }
 
     private void Begin(SimulationRequest request, Replica replica, Action<string?> reply, bool worker)
@@ -152,13 +182,23 @@ public sealed class SimulationWorkflow
         if (!replica.Execution.Acquire(request, () =>
         {
             void Process() => _engine.Schedule(_engine.NowMicroseconds + SimulationTime.FromMilliseconds(worker ? _config.Queue.WorkerProcessingMs : _config.Defaults.ServiceProcessingMs),
-                SimulationEventPriority.Ordinary, _ => { if (Live(work)) Dependency(work, worker); });
+                SimulationEventPriority.Ordinary, _ => { if (Live(work)) StartDependencies(work, worker); });
             if (worker) _network.Send(_topology.Queue!.Definition.NodeId, replica.NodeId, false, () => { if (Live(work)) Process(); });
             else Process();
         })) Finish(work, "ServiceOverloaded");
     }
 
     private bool Live(Work work) => !work.ServiceDone && work.Request.IsRunnable && work.Replica.Available;
+
+    private void StartDependencies(Work work, bool worker)
+    {
+        if (worker || _external == null) { Dependency(work, worker); return; }
+        var target = _topology.ExternalApi!.Definition.NodeId;
+        Resilience.Execute(work.Request, $"{work.Replica.Id}->{target}", (attempt, done) =>
+            _network.Send(work.Replica.NodeId, target, false, () => _external.Execute(attempt,
+                error => _network.Send(work.Replica.NodeId, target, true, () => done(error)))), _external.Cancel,
+            error => { if (!Live(work)) return; if (error != null) Finish(work, error); else Dependency(work, false); });
+    }
 
     private void Dependency(Work work, bool worker)
     {
@@ -193,75 +233,39 @@ public sealed class SimulationWorkflow
     private void CallDatabase(Work work)
     {
         if (!Live(work)) return;
-        if (!work.Replica.Pool.Acquire(work.Request, () =>
-        {
-            if (!_connections.Acquire(work.Request, () => _network.Send(work.Replica.NodeId, _topology.Database.Definition.NodeId, false, () => DatabaseArrive(work))))
-            { work.Replica.Pool.Release(work.Request); Finish(work, "DatabaseUnavailable"); }
-        })) Finish(work, "ConnectionPoolOverloaded");
-    }
-
-    private void DatabaseArrive(Work work)
-    {
-        if (!Live(work)) { CleanupDatabase(work); return; }
-        work.DatabaseArrived = true;
-        if (!_database.IsAvailable) { DatabaseReply(work, "DatabaseUnavailable"); return; }
-        if (!_database.Acquire(work.Request, () =>
-        {
-            work.Request.DatabaseExecuting = true;
-            var duration = work.Request.IsRead ? _config.Defaults.DatabaseReadProcessingMs : _config.Defaults.DatabaseWriteProcessingMs;
-            _engine.Schedule(_engine.NowMicroseconds + SimulationTime.FromMilliseconds(duration), SimulationEventPriority.Ordinary, _ =>
+        Resilience.Execute(work.Request, $"{work.Replica.Id}->{_topology.Database.Definition.NodeId}",
+            (attempt, done) => Database.Execute(attempt, work.Replica.NodeId, work.Replica.Pool, done), Database.Cancel,
+            error =>
             {
-                if (work.DatabaseDone) return;
-                work.Request.DatabaseExecuting = false;
-                if (work.Request.IsRead) ReadsCompleted++;
-                else { WritesCompleted++; Cache.Invalidate(work.Request.Key); }
-                _database.Release(work.Request);
-                DatabaseReply(work, null);
-            });
-        })) DatabaseReply(work, "DatabaseOverloaded");
-    }
-
-    private void DatabaseReply(Work work, string? error)
-    {
-        if (work.DatabaseDone) return;
-        work.DatabaseDone = true;
-        work.Request.DatabaseExecuting = false;
-        _network.Send(work.Replica.NodeId, _topology.Database.Definition.NodeId, true, () =>
-        {
-            CleanupDatabase(work);
-            if (Live(work) && error == null && work.Request.IsRead && _topology.Cache != null)
-            {
-                _network.Send(work.Replica.NodeId, _topology.Cache.Definition.NodeId, false, () =>
+                if (!Live(work)) return;
+                if (error == null && work.Request.IsRead && !work.Request.IsStaleRead && _topology.Cache != null)
                 {
-                    Cache.Populate(work.Request.Key, work.CacheVersion, work.CacheGeneration);
-                    _network.Send(work.Replica.NodeId, _topology.Cache.Definition.NodeId, true, () => Finish(work, null));
-                });
-            }
-            else Finish(work, error);
-        });
+                    _network.Send(work.Replica.NodeId, _topology.Cache.Definition.NodeId, false, () =>
+                    {
+                        if (!Live(work)) return;
+                        Cache.Populate(work.Request.Key, work.CacheVersion, work.CacheGeneration);
+                        _network.Send(work.Replica.NodeId, _topology.Cache.Definition.NodeId, true, () => Finish(work, null));
+                    });
+                }
+                else Finish(work, error);
+            });
     }
-
-    private void CleanupDatabase(Work work)
-    {
-        _database.Release(work.Request); _connections.Release(work.Request); work.Replica.Pool.Release(work.Request);
-        if (work.ServiceDone) _work.Remove(work.Request.Id);
-    }
-
     private void Finish(Work work, string? error)
     {
         if (work.ServiceDone) return;
         work.ServiceDone = true;
         work.Replica.Execution.Release(work.Request);
-        if (!work.Request.DatabaseExecuting) _work.Remove(work.Request.Id);
+        _work.Remove(work.Request.Id);
         if (work.Request.IsPending) work.Reply(error);
     }
 
     public void Cancel(SimulationRequest request)
     {
-        _atLoadBalancer.Remove(request.Id);
+        _ingress.Remove(request.Id); _returning.Remove(request.Id);
+        _gateway?.Cancel(request);
+        Resilience.Cancel(request);
         if (!_work.TryGetValue(request.Id, out var work)) return;
         Finish(work, null);
-        if (!request.DatabaseExecuting) CleanupDatabase(work);
     }
 
     public void SetAvailable(string nodeId, string? replicaId, bool available)
@@ -283,7 +287,7 @@ public sealed class SimulationWorkflow
                     foreach (var work in interrupted)
                     {
                         Finish(work, "ServiceUnavailable");
-                        if (!work.Request.DatabaseExecuting) CleanupDatabase(work);
+                        Resilience.Cancel(work.Request);
                     }
                 }
             }
@@ -291,17 +295,21 @@ public sealed class SimulationWorkflow
             Jobs.Pump();
             return;
         }
+        if (component == _topology.Database) { Database.SetAvailable(replicaId, available); return; }
         if (component.IsAvailable == available) return;
         Transition(nodeId, null, component.IsAvailable, available);
         component.IsAvailable = available;
-        if (component == _topology.LoadBalancer && !available)
-            foreach (var request in _atLoadBalancer.Values.ToArray()) ReturnToClient(request, "LoadBalancerUnavailable", false);
-        if (component == _topology.Database)
+        if ((component == _topology.LoadBalancer || component == _topology.Gateway) && !available)
         {
-            _database.SetAvailable(available);
-            if (!available)
-                foreach (var work in _work.Values.Where(w => w.DatabaseArrived && !w.DatabaseDone).ToArray()) DatabaseReply(work, "DatabaseUnavailable");
+            var depth = _topology.IngressRoutes.ToList().FindIndex(r => r.TargetNodeId == nodeId) + 1;
+            foreach (var state in _ingress.Values.Where(s => s.Depth >= depth).ToArray())
+            {
+                _ingress[state.Request.Id] = (state.Request, depth);
+                ReturnToClient(state.Request, component == _topology.Gateway ? "GatewayUnavailable" : "LoadBalancerUnavailable", true);
+            }
         }
+        if (component == _topology.Gateway) _gateway!.SetAvailable(available);
+        if (component == _topology.ExternalApi) _external!.SetAvailable(available);
         if (component == _topology.Cache) Cache.SetAvailable(available);
         if (component == _topology.Queue) Jobs.SetAvailable(available);
         if (component == _topology.Client) _client.SetAvailable(available);

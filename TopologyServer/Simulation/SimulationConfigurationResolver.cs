@@ -8,10 +8,30 @@ public static class SimulationConfigurationResolver
     public static SimulationConfiguration Resolve(SimulationConfiguration input, CompiledTopology topology)
     {
         var config = JsonSerializer.Deserialize<SimulationConfiguration>(JsonSerializer.Serialize(input))!;
-        if (config.Workload == null || config.Defaults == null || config.Limits == null || config.ScheduledEvents == null || config.EdgeDelayMs == null || config.Routing == null || config.Cache == null || config.Queue == null)
+        if (config.Workload == null || config.Defaults == null || config.Limits == null || config.ScheduledEvents == null || config.EdgeDelayMs == null || config.Routing == null || config.Cache == null || config.Queue == null || config.Gateway == null || config.ExternalApi == null || config.Retries == null || config.CircuitBreaker == null || config.DatabaseReplication == null)
             throw new ArgumentException("Configuration sections cannot be null.");
         _ = new SimulationEngine(config.DurationSeconds, config.RandomSeed, config.Limits);
         ValidateSchedule(config, topology);
+        Duration(config.Gateway.ProcessingMs, false, "Gateway processing time");
+        Count(config.Gateway.Concurrency, 1, 100000, "Gateway concurrency");
+        Count(config.Gateway.QueueCapacity, 0, 100000, "Gateway queue");
+        Count(config.Gateway.RateLimitPerSecond, 0, 1000000, "Gateway rate limit");
+        Duration(config.ExternalApi.LatencyMs, false, "External API latency");
+        Count(config.ExternalApi.Concurrency, 1, 100000, "External API concurrency");
+        Count(config.ExternalApi.QueueCapacity, 0, 100000, "External API queue");
+        Count(config.ExternalApi.RateLimitPerMinute, 0, 1000000, "External API rate limit");
+        Count(config.ExternalApi.ReliabilityPercentage, 0, 100, "External API reliability");
+        Count(config.Retries.MaxAttempts, 1, 10, "Maximum attempts");
+        Duration(config.Retries.BaseDelayMs, false, "Retry delay");
+        Duration(config.Retries.MaxDelayMs, false, "Maximum retry delay");
+        if (config.Retries.MaxDelayMs < config.Retries.BaseDelayMs) throw new ArgumentException("Maximum retry delay must be at least the base delay.");
+        Count(config.Retries.JitterPercentage, 0, 100, "Retry jitter");
+        Count(config.CircuitBreaker.FailureThreshold, 1, 100000, "Circuit failure threshold");
+        Duration(config.CircuitBreaker.OpenDurationMs, false, "Circuit open duration");
+        if (!Enum.IsDefined(config.DatabaseReplication.ReadPreference)) throw new ArgumentException("Unknown database read preference.");
+        Duration(config.DatabaseReplication.LagMs, true, "Replication lag");
+        Duration(config.DatabaseReplication.DetectionDelayMs, true, "Database detection delay");
+        Duration(config.DatabaseReplication.PromotionDelayMs, false, "Database promotion delay");
         if (!Enum.IsDefined(config.Routing.Policy)) throw new ArgumentException("Unknown routing policy.");
         Count(config.Routing.HealthCheckIntervalMs, 1, 3600000, "Health check interval");
         Count(config.Routing.DetectionDelayMs, 0, 3600000, "Detection delay");
@@ -106,6 +126,7 @@ public static class SimulationConfigurationResolver
                 if (item.RequestsPerSecond.HasValue || item.EndAtMicroseconds.HasValue || item.EndRequestsPerSecond.HasValue)
                     throw new ArgumentException("Component events cannot specify traffic settings.");
                 var replicas = ReadInteger(target, "replicas", 1);
+                if (target.Definition.Type == ComponentType.Database) replicas += ReadInteger(target, "readReplicas", 0);
                 if (item.TargetReplicaId != null && !Enumerable.Range(1, replicas).Select(i => $"{target.Definition.NodeId}:{i}").Contains(item.TargetReplicaId))
                     throw new ArgumentException($"Unknown replica '{item.TargetReplicaId}'. Replica IDs use nodeId:1, nodeId:2, etc.");
                 expanded.Add(item);

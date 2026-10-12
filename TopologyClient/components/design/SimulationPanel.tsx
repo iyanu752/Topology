@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { SimulationConfiguration, SimulationResult, ScheduledSimulationEvent } from "@/types";
 import { SimulationScheduleEditor, type SimulationTarget } from "./SimulationScheduleEditor";
 import { SimulationPlayback } from "./SimulationPlayback";
+import { SimulationReliabilitySettings, initialReliabilitySettings } from "./SimulationReliabilitySettings";
 
 export type SimulationPanelConfig = SimulationConfiguration;
 
@@ -45,6 +46,7 @@ export function SimulationPanel({ onRun, onCancel, onExample, busy, error, resul
   const [workerTime, setWorkerTime] = useState(10);
   const [deliveries, setDeliveries] = useState(3);
   const [ackTimeout, setAckTimeout] = useState(30000);
+  const [reliability, setReliability] = useState(initialReliabilitySettings);
 
   function field(label: string, value: number, set: (value: number) => void, min: number, max: number, step = 1) {
     return <label className="block text-xs text-zinc-400">{label}<input aria-label={label} type="number" required min={min} max={max} step={step} value={Number.isNaN(value) ? "" : value}
@@ -59,6 +61,7 @@ export function SimulationPanel({ onRun, onCancel, onExample, busy, error, resul
     <form onSubmit={e => { e.preventDefault(); onRun({ durationSeconds: duration, randomSeed: seed, metricIntervalMs: 250,
       workload: { requestsPerSecond: traffic, readPercentage: reads, writePercentage: 100 - reads, clientTimeoutMs: timeout, keySpaceSize: keys },
       scheduledEvents: events,
+      ...reliability,
       routing: { policy, healthCheckIntervalMs: healthInterval, detectionDelayMs: detectionDelay },
       cache: { capacity: cacheCapacity, ttlMs: cacheTtl },
       queue: { capacity: jobCapacity, workerConcurrency: workerSlots, workerProcessingMs: workerTime, maxDeliveries: deliveries, acknowledgementTimeoutMs: ackTimeout },
@@ -102,6 +105,7 @@ export function SimulationPanel({ onRun, onCancel, onExample, busy, error, resul
             {field("Job acknowledgement (ms)", ackTimeout, setAckTimeout, 1, 3600000)}
           </div>
         </details>
+        <SimulationReliabilitySettings value={reliability} onChange={setReliability} />
         <SimulationScheduleEditor events={events} onChange={setEvents} targets={targets} duration={duration} />
         <button className="w-full rounded bg-emerald-400 px-3 py-2 text-sm font-semibold text-zinc-950" type="submit">{busy ? "Running…" : "Run simulation"}</button>
       </fieldset>
